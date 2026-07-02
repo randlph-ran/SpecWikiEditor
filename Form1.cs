@@ -12,12 +12,15 @@ namespace SpecWikiEditor
     // メインフォームクラス。UIイベントとファイル操作、プレビュー更新を担当する。
     public partial class Form1 : Form
     {
-        // プロジェクトルート（デスクトップ/WikiProject）へのパス
-        private string currentProjectDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "WikiProject");
-        // 画像などのアセットを保存するフォルダパス
-        private string assetsDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "WikiProject", "assets");
+        // プロジェクトルートへのパス。Default.cfg の設定に基づき Form1_Load で決定される。
+        private string currentProjectDir;
+        // 画像などのアセットを保存するフォルダパス。同じく Form1_Load で決定される。
+        private string assetsDir;
         // 現在編集中のMarkdownファイルのフルパス
         private string currentFilePath = "";
+
+        // Default.cfg（保存先パス・フォルダ名・起動時最大化）の内容を保持する
+        private AppConfig appConfig;
 
         // 「作業内容のセーブ」以降に変更が加えられたかどうか。終了時の確認ダイアログの判定に使う。
         private bool hasUnsavedChanges = false;
@@ -125,6 +128,7 @@ namespace SpecWikiEditor
                 menuLoadWork.Click += MenuLoadWork_Click;
                 menuLoadMdFile.Click += MenuLoadMdFile_Click;
                 menuExportHtml.Click += (s, e) => ExportCurrentFileToHtml();
+                menuSettings.Click += MenuSettings_Click;
                 menuExit.Click += (s, e) => this.Close();
             }
             catch (Exception ex)
@@ -139,6 +143,18 @@ namespace SpecWikiEditor
         {
             try
             {
+                // Default.cfg を読み込む（存在しなければ既定値で新規作成する）
+                appConfig = AppConfig.LoadOrCreate(out bool wasConfigCreated);
+                currentProjectDir = appConfig.GetProjectRootPath();
+                assetsDir = Path.Combine(currentProjectDir, "assets");
+
+                // 今回初めてDefault.cfgを作成した場合、旧バージョンで使われていた
+                // デスクトップ上のWikiProjectフォルダが残っていれば、新しい保存先へ移行する
+                if (wasConfigCreated) MigrateLegacyProjectFolder();
+
+                // 起動時の最大化設定を反映する
+                if (appConfig.MaximizeOnStartup) this.WindowState = FormWindowState.Maximized;
+
                 // プロジェクトフォルダとアセットフォルダの初期化
                 InitializeProjectFolders();
                 // フォルダ構成に基づきタブを読み込む
@@ -207,6 +223,57 @@ namespace SpecWikiEditor
             txtEditor.SelectionStart = savedSelectionStart;
             txtEditor.SelectionLength = savedSelectionLength;
             txtEditor.ScrollToCaret();
+        }
+
+        // 旧バージョン（Default.cfg導入前）で使われていた「デスクトップ\WikiProject」フォルダが
+        // 残っている場合、新しい保存先（Default.cfgのSavePath\FolderName）へ移動する。
+        // Default.cfgを初めて作成したタイミング（＝アップデート後の初回起動）でのみ呼び出す。
+        private void MigrateLegacyProjectFolder()
+        {
+            string legacyProjectDir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "WikiProject");
+
+            if (!Directory.Exists(legacyProjectDir) || Directory.Exists(currentProjectDir)) return;
+
+            try
+            {
+                string parentDir = Path.GetDirectoryName(currentProjectDir);
+                if (!string.IsNullOrEmpty(parentDir) && !Directory.Exists(parentDir))
+                    Directory.CreateDirectory(parentDir);
+
+                Directory.Move(legacyProjectDir, currentProjectDir);
+                MessageBox.Show(
+                    $"デスクトップの既存データ(WikiProject)を新しい保存先に移行しました。\n{currentProjectDir}",
+                    "データ移行");
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("既存データの移行に失敗しました: " + ex.Message);
+            }
+        }
+
+        // 「設定」メニュー押下時：Default.cfgの内容を編集するダイアログを表示する
+        private void MenuSettings_Click(object sender, EventArgs e)
+        {
+            using (var dialog = new SettingsDialog(appConfig))
+            {
+                if (dialog.ShowDialog(this) != DialogResult.OK) return;
+
+                string newSavePath = dialog.SavePathResult;
+                string newFolderName = SanitizeName(dialog.FolderNameResult);
+                if (string.IsNullOrEmpty(newSavePath) || string.IsNullOrEmpty(newFolderName))
+                {
+                    MessageBox.Show("保存先パスとフォルダ名は必須です。");
+                    return;
+                }
+
+                appConfig.SavePath = newSavePath;
+                appConfig.FolderName = newFolderName;
+                appConfig.MaximizeOnStartup = dialog.MaximizeResult;
+                appConfig.Save();
+
+                MessageBox.Show("設定を保存しました。変更を反映するにはアプリを再起動してください。");
+            }
         }
 
         private void InitializeProjectFolders()

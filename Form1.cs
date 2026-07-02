@@ -2,6 +2,8 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.IO.Compression;
+using System.Text;
 using System.Windows.Forms;
 using Markdig;
 
@@ -17,6 +19,9 @@ namespace SpecWikiEditor
         // 現在編集中のMarkdownファイルのフルパス
         private string currentFilePath = "";
 
+        // 「作業内容のセーブ」以降に変更が加えられたかどうか。終了時の確認ダイアログの判定に使う。
+        private bool hasUnsavedChanges = false;
+
         // プレビュー・出力HTMLの両方で使う共通CSS。
         // ・画像がプレビュー/出力先の表示幅に収まるよう自動縮小させる（元の画像ファイルには一切手を加えない）
         // ・背景色/文字色を明示指定し、閲覧環境のダークモード設定による自動反転（黒背景に黒文字等）を防ぐ
@@ -25,6 +30,22 @@ namespace SpecWikiEditor
 
         // タブに描画する「×」（閉じる）ボタンの一辺のサイズ(px)
         private const int TabCloseButtonSize = 16;
+
+        // Markdown変換用のパイプライン。
+        // ・UseSoftlineBreakAsHardlineBreak() : エディタ内の単一の改行(Enter1回)をそのまま<br>として扱う
+        // ・UseAdvancedExtensions()           : 表・チェックリスト・取り消し線など、標準Markdownには無い
+        //                                        拡張記法をまとめて有効化する（ツールバーの各機能に対応するため）
+        private static readonly MarkdownPipeline markdownPipeline =
+            new MarkdownPipelineBuilder().UseAdvancedExtensions().UseSoftlineBreakAsHardlineBreak().Build();
+
+        // 文字サイズ変更ドロップダウンの選択肢と、対応するフォントサイズ(px)
+        private static readonly (string Label, int Px)[] FontSizeOptions =
+        {
+            ("小", 12),
+            ("中", 16),
+            ("大", 24),
+            ("特大", 32),
+        };
 
         public Form1()
         {
@@ -37,10 +58,12 @@ namespace SpecWikiEditor
 
                 // フォームのロード時イベントを登録
                 this.Load += Form1_Load;
+                // 終了時、未保存の変更があれば確認する
+                this.FormClosing += Form1_FormClosing;
 
                 // 主要なUI要素が存在するかチェック（見つからなければ致命的エラー）
                 if (tabControlMain == null || lstSidebar == null || txtEditor == null || btnAddTab == null || btnExport == null
-                    || btnAddFile == null || btnRemoveFile == null)
+                    || btnAddFile == null || btnRemoveFile == null || cmbFontSize == null)
                     throw new Exception("UI部品が見つかりません。");
 
                 // タブ切替・サイドバー選択・エディタのイベントを登録
@@ -60,9 +83,49 @@ namespace SpecWikiEditor
                 tabControlMain.DrawItem += TabControlMain_DrawItem;
                 tabControlMain.MouseDown += TabControlMain_MouseDown;
 
+                // 編集ツールバー(pnlEditorToolbar)は、ボタンの折り返し行数がウィンドウ幅によって
+                // 変わる。折り返し行数が変わる＝パネル自身の内部レイアウトが変わる瞬間である
+                // Layoutイベントを捉えて、そのたびに高さを実際の行数に合わせて再計算する。
+                // （Resize/SplitterMovedだけでは反映タイミングが漏れることがあったため、
+                // より直接的なLayoutイベントで確実に捕捉する）
+                pnlEditorToolbar.Layout += (s, e) => AdjustEditorToolbarHeight();
+                this.Resize += (s, e) => AdjustEditorToolbarHeight();
+                splitContainer1.SplitterMoved += (s, e) => AdjustEditorToolbarHeight();
+                splitContainer2.SplitterMoved += (s, e) => AdjustEditorToolbarHeight();
+
+                // 編集ツールバーの各ボタンにMarkdown/HTML挿入処理を割り当てる
+                btnHeading1.Click += (s, e) => InsertPrefixOnSelectedLines(_ => "# ");
+                btnHeading2.Click += (s, e) => InsertPrefixOnSelectedLines(_ => "## ");
+                btnBulletList.Click += (s, e) => InsertPrefixOnSelectedLines(_ => "- ");
+                btnNumberedList.Click += (s, e) => InsertPrefixOnSelectedLines(i => $"{i + 1}. ");
+                btnCheckList.Click += (s, e) => InsertPrefixOnSelectedLines(_ => "- [ ] ");
+                btnQuote.Click += (s, e) => InsertPrefixOnSelectedLines(_ => "> ");
+                btnHr.Click += (s, e) => InsertAtCursor("\r\n\r\n---\r\n\r\n");
+                btnBold.Click += (s, e) => WrapSelection("**", "**", "太字");
+                btnUnderline.Click += (s, e) => WrapSelection("<u>", "</u>", "下線");
+                btnStrikethrough.Click += (s, e) => WrapSelection("~~", "~~", "取消線");
+                btnInlineCode.Click += (s, e) => WrapSelection("`", "`", "コード");
+                btnCodeBlock.Click += (s, e) => WrapSelection("```\r\n", "\r\n```", "コード");
+                btnLink.Click += (s, e) => InsertLink();
+                btnTable.Click += (s, e) => InsertAtCursor(
+                    "\r\n\r\n| 見出し1 | 見出し2 |\r\n| --- | --- |\r\n| セル1 | セル2 |\r\n\r\n");
+                btnTextColor.Click += (s, e) => InsertTextColor();
+                btnFindReplace.Click += (s, e) => new FindReplaceDialog(txtEditor).Show(this);
+
+                // 文字サイズドロップダウンの選択肢を用意し、選択されたら選択範囲をそのサイズで囲む
+                foreach (var option in FontSizeOptions) cmbFontSize.Items.Add(option.Label);
+                cmbFontSize.SelectedIndexChanged += CmbFontSize_SelectedIndexChanged;
+
                 // サイドバーの「+」で段落追加、「-」で選択中の段落を削除する
                 btnAddFile.Click += BtnAddFile_Click;
                 btnRemoveFile.Click += BtnRemoveFile_Click;
+
+                // 「ファイル」メニューの各項目にイベントを割り当てる
+                menuSaveWork.Click += (s, e) => SaveWorkToSpc();
+                menuLoadWork.Click += MenuLoadWork_Click;
+                menuLoadMdFile.Click += MenuLoadMdFile_Click;
+                menuExportHtml.Click += (s, e) => ExportCurrentFileToHtml();
+                menuExit.Click += (s, e) => this.Close();
             }
             catch (Exception ex)
             {
@@ -80,6 +143,10 @@ namespace SpecWikiEditor
                 InitializeProjectFolders();
                 // フォルダ構成に基づきタブを読み込む
                 LoadTabsFromFolders();
+
+                // フォーム表示直後の実際の幅に合わせて、編集ツールバーの高さを計算しておく
+                AdjustEditorToolbarHeight();
+
 
                 // WebView2 のコア初期化を待機
                 await webView2Preview.EnsureCoreWebView2Async(null);
@@ -101,6 +168,45 @@ namespace SpecWikiEditor
                 // 起動時のエラーはダイアログで通知
                 MessageBox.Show("起動エラー: " + ex.Message);
             }
+        }
+
+        // 編集ツールバー(pnlEditorToolbar)の高さを、実際に配置されたボタンの下端座標に合わせて再計算する。
+        // FlowLayoutPanelは既定では収まりきらない子コントロールをクリッピングせず、
+        // パネルの外側（＝下にあるtxtEditorの領域）にそのままはみ出して描画してしまうため、
+        // 高さを常に正しい値に保つことが、エディタ本体（txtEditor）のTop位置がずれない
+        // ようにする唯一の対策となる。
+        // ※GetPreferredSize()による見積もりでは実際の描画とわずかにズレることがあったため、
+        //   ボタン1つ1つの実際のBottom座標を直接調べて、その最大値をそのまま高さとして採用する。
+        private void AdjustEditorToolbarHeight()
+        {
+            if (pnlEditorToolbar.Width <= 0 || pnlEditorToolbar.Controls.Count == 0) return;
+
+            int maxBottom = 0;
+            foreach (Control control in pnlEditorToolbar.Controls)
+            {
+                int bottom = control.Bottom + control.Margin.Bottom;
+                if (bottom > maxBottom) maxBottom = bottom;
+            }
+            int neededHeight = maxBottom + pnlEditorToolbar.Padding.Bottom;
+
+            if (pnlEditorToolbar.Height == neededHeight) return;
+
+            pnlEditorToolbar.Height = neededHeight;
+            // Dockの再計算を即座に反映させ、隣接するtxtEditorの開始位置がずれないようにする
+            splitContainer2.Panel2.PerformLayout();
+
+            // txtEditorはDock=Fillのためこのタイミングでサイズが変わるが、Windows標準の
+            // マルチラインテキストボックスは「内部スクロール位置(先頭表示行)」をリサイズ後に
+            // 自動でリセットしないため、そのままだと本来見えるはずの先頭行が隠れたままになる。
+            // 一度カーソルを先頭(位置0)に移動してスクロール位置を確実にリセットしてから、
+            // 元のカーソル位置に戻すことで、この表示ズレを解消する。
+            int savedSelectionStart = txtEditor.SelectionStart;
+            int savedSelectionLength = txtEditor.SelectionLength;
+            txtEditor.SelectionStart = 0;
+            txtEditor.ScrollToCaret();
+            txtEditor.SelectionStart = savedSelectionStart;
+            txtEditor.SelectionLength = savedSelectionLength;
+            txtEditor.ScrollToCaret();
         }
 
         private void InitializeProjectFolders()
@@ -150,6 +256,10 @@ namespace SpecWikiEditor
 
             // タブ切替に伴い、タブページ内のリネーム欄の表示も最新の状態に更新する
             RefreshRenameBoxes();
+
+            // TabControlの標準仕様上、タブをクリックで切り替えるとタブページ内の最初のコントロール
+            // （リネーム欄）へ自動的にフォーカスが移ってしまうため、明示的にエディタへフォーカスを戻す
+            txtEditor.Focus();
         }
 
         private void LstSidebar_SelectedIndexChanged(object sender, EventArgs e)
@@ -162,6 +272,9 @@ namespace SpecWikiEditor
 
             // 段落の選択に伴い、リネーム欄の「段落名称」表示も最新の状態に更新する
             RefreshRenameBoxes();
+
+            // 段落切替時も、確実にエディタへフォーカスを戻しておく
+            txtEditor.Focus();
         }
 
         private void SaveCurrentFile()
@@ -180,8 +293,12 @@ namespace SpecWikiEditor
             return name;
         }
 
-        // テキストが変更されたらプレビューを更新する（遅延なし）
-        private void TxtEditor_TextChanged(object sender, EventArgs e) => UpdatePreview();
+        // テキストが変更されたらプレビューを更新する（遅延なし）。あわせて未保存フラグを立てる。
+        private void TxtEditor_TextChanged(object sender, EventArgs e)
+        {
+            hasUnsavedChanges = true;
+            UpdatePreview();
+        }
 
         private void UpdatePreview()
         {
@@ -200,7 +317,7 @@ namespace SpecWikiEditor
         // プレビュー・出力の両方に反映される（拡張性を考慮した共通化）。
         private string BuildHtmlDocument(string markdownText, string imageBaseUrl)
         {
-            string htmlBody = Markdown.ToHtml(markdownText);
+            string htmlBody = Markdown.ToHtml(markdownText, markdownPipeline);
             // assetsDir のパス区切りをURL向けに変換してから、いったん仮想ホスト表記に統一する
             // （ローカルの絶対パスで画像が参照されているケースへの後方互換）
             htmlBody = htmlBody.Replace(assetsDir.Replace("\\", "/"), "https://wiki-assets");
@@ -235,6 +352,100 @@ namespace SpecWikiEditor
                 // 挿入後にファイル保存
                 SaveCurrentFile();
             }
+        }
+
+        // 現在の選択範囲を含む行（複数行選択時はすべての行）の先頭に、prefixGenerator が返す文字列を挿入する。
+        // 見出し・箇条書き・番号付きリスト・チェックリスト・引用など、行頭に記号を付ける系のボタンで共通利用する。
+        // prefixGenerator の引数には「選択範囲内での行番号(0始まり)」が渡され、番号付きリストの連番などに使う。
+        private void InsertPrefixOnSelectedLines(Func<int, string> prefixGenerator)
+        {
+            string text = txtEditor.Text;
+            int selStart = txtEditor.SelectionStart;
+            int selEnd = selStart + txtEditor.SelectionLength;
+
+            // 選択範囲を含む行の開始位置・終了位置を求める
+            int lineStart = text.LastIndexOf('\n', Math.Max(selStart - 1, 0)) + 1;
+            int lineEnd = text.IndexOf('\n', selEnd);
+            if (lineEnd == -1) lineEnd = text.Length;
+
+            string[] lines = text.Substring(lineStart, lineEnd - lineStart).Split('\n');
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < lines.Length; i++)
+            {
+                sb.Append(prefixGenerator(i));
+                sb.Append(lines[i].TrimEnd('\r'));
+                if (i < lines.Length - 1) sb.Append('\n');
+            }
+
+            string replaced = sb.ToString();
+            txtEditor.Text = text.Substring(0, lineStart) + replaced + text.Substring(lineEnd);
+
+            // カーソルを変更後の範囲の末尾に移動する
+            txtEditor.SelectionStart = lineStart + replaced.Length;
+            txtEditor.SelectionLength = 0;
+            txtEditor.Focus();
+        }
+
+        // 選択範囲を prefix と suffix で囲む。未選択の場合は placeholder を挿入し、その部分を選択状態にする
+        // （続けて文字を入力すればそのまま置き換えられるようにするため）。
+        // 太字・下線・取消線・インラインコード・コードブロック・文字色・文字サイズの各ボタンで共通利用する。
+        private void WrapSelection(string prefix, string suffix, string placeholder)
+        {
+            int start = txtEditor.SelectionStart;
+            string selected = txtEditor.SelectionLength > 0 ? txtEditor.SelectedText : placeholder;
+
+            txtEditor.SelectedText = prefix + selected + suffix;
+
+            txtEditor.SelectionStart = start + prefix.Length;
+            txtEditor.SelectionLength = selected.Length;
+            txtEditor.Focus();
+        }
+
+        // カーソル位置（選択中であれば選択範囲を置き換えて）に文字列を挿入する。水平線・テーブルの雛形挿入で使用する。
+        private void InsertAtCursor(string text)
+        {
+            int insertPos = txtEditor.SelectionStart;
+            txtEditor.SelectedText = text;
+            txtEditor.SelectionStart = insertPos + text.Length;
+            txtEditor.SelectionLength = 0;
+            txtEditor.Focus();
+        }
+
+        // 「リンク」ボタン押下時：表示文字とURLを入力してもらい、Markdownのリンク記法を挿入する
+        private void InsertLink()
+        {
+            string defaultDisplayText = txtEditor.SelectionLength > 0 ? txtEditor.SelectedText : "リンク";
+            using (var dialog = new LinkInputDialog(defaultDisplayText))
+            {
+                if (dialog.ShowDialog(this) != DialogResult.OK) return;
+                if (string.IsNullOrWhiteSpace(dialog.Url)) return;
+
+                string displayText = string.IsNullOrWhiteSpace(dialog.DisplayText) ? dialog.Url : dialog.DisplayText;
+                InsertAtCursor($"[{displayText}]({dialog.Url})");
+            }
+        }
+
+        // 「文字色」ボタン押下時：カラーピッカーで色を選び、選択範囲をHTMLのspanタグ(color指定)で囲む
+        private void InsertTextColor()
+        {
+            using (var dialog = new ColorDialog())
+            {
+                if (dialog.ShowDialog(this) != DialogResult.OK) return;
+
+                string colorHex = $"#{dialog.Color.R:X2}{dialog.Color.G:X2}{dialog.Color.B:X2}";
+                WrapSelection($"<span style=\"color:{colorHex}\">", "</span>", "文字色");
+            }
+        }
+
+        // 文字サイズドロップダウンで選択された際：選択範囲をHTMLのspanタグ(font-size指定)で囲む
+        private void CmbFontSize_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            if (cmbFontSize.SelectedIndex < 0) return;
+            int px = FontSizeOptions[cmbFontSize.SelectedIndex].Px;
+            WrapSelection($"<span style=\"font-size:{px}px\">", "</span>", "文字サイズ");
+
+            // 同じ選択肢を続けて選んでも再度反映できるよう、選択状態をリセットしておく
+            cmbFontSize.SelectedIndex = -1;
         }
 
         // タブ矩形から、右端に配置する「×」ボタンの矩形を計算する（描画・クリック判定の両方で使う共通ロジック）
@@ -317,6 +528,7 @@ namespace SpecWikiEditor
             }
 
             tabControlMain.TabPages.RemoveAt(index);
+            hasUnsavedChanges = true;
 
             // タブが1つも無くなった場合は、サイドバーとエディタも空にしておく
             // （タブが残っていれば SelectedIndexChanged が自動発火し、サイドバーが更新される）
@@ -387,6 +599,7 @@ namespace SpecWikiEditor
                     Directory.Move(oldFolder, newFolder);
                     page.Text = newTabName;
                     page.Tag = newFolder;
+                    hasUnsavedChanges = true;
 
                     if (wasEditingHere) currentFilePath = Path.Combine(newFolder, fileNameOnly);
                 }
@@ -412,6 +625,7 @@ namespace SpecWikiEditor
 
                     File.Move(oldFile, newFile);
                     currentFilePath = newFile;
+                    hasUnsavedChanges = true;
 
                     int selectedIndex = lstSidebar.SelectedIndex;
                     lstSidebar.Items[selectedIndex] = newFileDisplayName;
@@ -457,11 +671,16 @@ namespace SpecWikiEditor
                 SetupTabPageRenameControls(newPage);
                 tabControlMain.TabPages.Add(newPage);
                 tabControlMain.SelectedTab = newPage;
+                hasUnsavedChanges = true;
             }
         }
 
-        // 「出力」ボタン押下時：現在編集中の1ファイルをHTMLとして書き出し、既定のブラウザで開く
-        private void BtnExport_Click(object sender, EventArgs e)
+        // 「出力」ボタン押下時：メニューの「HTML出力」と共通の処理を呼び出す
+        private void BtnExport_Click(object sender, EventArgs e) => ExportCurrentFileToHtml();
+
+        // 現在編集中の1ファイルをHTMLとして書き出し、既定のブラウザで開く。
+        // 右下の「出力」ボタンとメニューの「HTML出力」の両方から共通で呼び出す処理。
+        private void ExportCurrentFileToHtml()
         {
             try
             {
@@ -474,34 +693,177 @@ namespace SpecWikiEditor
                     return;
                 }
 
-                // 出力先フォルダ（WikiProject/output）を用意する
-                string outputDir = Path.Combine(currentProjectDir, "output");
-                Directory.CreateDirectory(outputDir);
-
-                // 画像がHTML単体でも表示できるよう、assetsフォルダの中身を出力先にまるごとコピーする
-                string outputAssetsDir = Path.Combine(outputDir, "assets");
-                Directory.CreateDirectory(outputAssetsDir);
-                foreach (string srcFile in Directory.GetFiles(assetsDir))
+                // 保存先をダイアログで選んでもらう
+                using (var dialog = new SaveFileDialog
                 {
-                    string destFile = Path.Combine(outputAssetsDir, Path.GetFileName(srcFile));
-                    File.Copy(srcFile, destFile, true);
+                    Filter = "HTMLファイル (*.html)|*.html",
+                    FileName = Path.GetFileNameWithoutExtension(currentFilePath) + ".html"
+                })
+                {
+                    if (dialog.ShowDialog(this) != DialogResult.OK) return;
+
+                    string outputFilePath = dialog.FileName;
+                    string outputDir = Path.GetDirectoryName(outputFilePath);
+
+                    // 画像がHTML単体でも表示できるよう、assetsフォルダの中身を出力先の隣にまるごとコピーする
+                    string outputAssetsDir = Path.Combine(outputDir, "assets");
+                    Directory.CreateDirectory(outputAssetsDir);
+                    foreach (string srcFile in Directory.GetFiles(assetsDir))
+                    {
+                        string destFile = Path.Combine(outputAssetsDir, Path.GetFileName(srcFile));
+                        File.Copy(srcFile, destFile, true);
+                    }
+
+                    // 出力時は画像参照を、出力フォルダから見た相対パス（assets/xxx）に差し替える
+                    string html = BuildHtmlDocument(txtEditor.Text, "assets");
+                    File.WriteAllText(outputFilePath, html);
+
+                    // 既定のブラウザで開き、その場で表示内容を確認できるようにする
+                    Process.Start(new ProcessStartInfo(outputFilePath) { UseShellExecute = true });
                 }
-
-                // 出力時は画像参照を、出力フォルダから見た相対パス（assets/xxx）に差し替える
-                string html = BuildHtmlDocument(txtEditor.Text, "assets");
-
-                string outputFileName = Path.GetFileNameWithoutExtension(currentFilePath) + ".html";
-                string outputFilePath = Path.Combine(outputDir, outputFileName);
-                File.WriteAllText(outputFilePath, html);
-
-                // 既定のブラウザで開き、その場で表示内容を確認できるようにする
-                Process.Start(new ProcessStartInfo(outputFilePath) { UseShellExecute = true });
             }
             catch (Exception ex)
             {
                 // 出力に失敗した場合はエラー内容をダイアログで通知する
                 MessageBox.Show("出力エラー: " + ex.Message);
             }
+        }
+
+        // 指定フォルダ内の既存.mdファイルの先頭番号（例:"1.概要.md"の"1"）の最大値を調べ、その次の番号を返す。
+        // 段落追加(BtnAddFile_Click)・外部mdファイルの取り込み(MenuLoadMdFile_Click)で共通利用する。
+        private int GetNextParagraphNumber(string folder)
+        {
+            int nextNumber = 1;
+            foreach (string file in Directory.GetFiles(folder, "*.md"))
+            {
+                string baseName = Path.GetFileNameWithoutExtension(file);
+                int dotIndex = baseName.IndexOf('.');
+                if (dotIndex > 0 && int.TryParse(baseName.Substring(0, dotIndex), out int num) && num + 1 > nextNumber)
+                    nextNumber = num + 1;
+            }
+            return nextNumber;
+        }
+
+        // 「作業内容のセーブ」：現在のWikiProjectフォルダ全体（全タブ・全段落・assets）を
+        // 1つの.spcファイル（実体はZIP形式）に固めて保存する。
+        // 保存できた場合はtrue、ダイアログをキャンセルした場合や失敗した場合はfalseを返す
+        // （「作業内容のロード」で保存してから読み込む場合の判定に使う）。
+        private bool SaveWorkToSpc()
+        {
+            // 保存前に、編集中の内容を確実にファイルへ反映しておく
+            SaveCurrentFile();
+
+            using (var dialog = new SaveFileDialog { Filter = "作業内容ファイル (*.spc)|*.spc", FileName = "WikiProject.spc" })
+            {
+                if (dialog.ShowDialog(this) != DialogResult.OK) return false;
+
+                try
+                {
+                    // 同名ファイルが既に存在するとZipFile.CreateFromDirectoryが失敗するため、先に削除する
+                    if (File.Exists(dialog.FileName)) File.Delete(dialog.FileName);
+                    ZipFile.CreateFromDirectory(currentProjectDir, dialog.FileName);
+
+                    hasUnsavedChanges = false;
+                    MessageBox.Show("作業内容を保存しました。");
+                    return true;
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show("保存エラー: " + ex.Message);
+                    return false;
+                }
+            }
+        }
+
+        // 「作業内容のロード」：.spcファイルを読み込み、現在のWikiProjectの内容を完全に置き換える。
+        // 未保存の変更がある場合は、先に「保存する／このまま続行／キャンセル」を確認する。
+        private void MenuLoadWork_Click(object sender, EventArgs e)
+        {
+            using (var openDialog = new OpenFileDialog { Filter = "作業内容ファイル (*.spc)|*.spc" })
+            {
+                if (openDialog.ShowDialog(this) != DialogResult.OK) return;
+
+                if (hasUnsavedChanges)
+                {
+                    DialogResult confirm = MessageBox.Show(this,
+                        "現在の作業内容に未保存の変更があります。読み込むと現在の内容は失われます。\n\n" +
+                        "[はい] 保存してから読み込む\n[いいえ] 保存せずに読み込む（変更は破棄されます）\n[キャンセル] 読み込みを中止する",
+                        "確認", MessageBoxButtons.YesNoCancel, MessageBoxIcon.Warning);
+
+                    if (confirm == DialogResult.Cancel) return;
+                    if (confirm == DialogResult.Yes)
+                    {
+                        // 保存ダイアログをキャンセルした場合等は、読み込み自体も中止する
+                        if (!SaveWorkToSpc()) return;
+                    }
+                    // いいえの場合はそのまま処理を続行し、現在の変更を破棄する
+                }
+
+                try
+                {
+                    // 削除予定のフォルダへ書き戻さないよう、先に参照をクリアしておく
+                    currentFilePath = "";
+
+                    // 現在のWikiProjectの中身を完全に削除してから、.spcの内容を展開する
+                    if (Directory.Exists(currentProjectDir)) Directory.Delete(currentProjectDir, true);
+                    ZipFile.ExtractToDirectory(openDialog.FileName, currentProjectDir);
+
+                    // assetsフォルダが無い場合に備えて再作成しつつ、タブを再読み込みする
+                    InitializeProjectFolders();
+                    LoadTabsFromFolders();
+
+                    hasUnsavedChanges = false;
+                    MessageBox.Show("作業内容を読み込みました。");
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show("読み込みエラー: " + ex.Message);
+                }
+            }
+        }
+
+        // 「mdファイルのロード」：外部の.mdファイルを、現在選択中のタブに新規段落として取り込む
+        private void MenuLoadMdFile_Click(object sender, EventArgs e)
+        {
+            if (tabControlMain.SelectedTab == null)
+            {
+                MessageBox.Show("先にタブを選択してください。");
+                return;
+            }
+            string folder = tabControlMain.SelectedTab.Tag?.ToString();
+            if (string.IsNullOrEmpty(folder)) return;
+
+            using (var dialog = new OpenFileDialog { Filter = "Markdownファイル (*.md)|*.md" })
+            {
+                if (dialog.ShowDialog(this) != DialogResult.OK) return;
+
+                string sourceContent = File.ReadAllText(dialog.FileName);
+                string baseName = SanitizeName(Path.GetFileNameWithoutExtension(dialog.FileName));
+                if (string.IsNullOrEmpty(baseName)) baseName = "無題";
+
+                // 既存の段落追加と同じ採番ルールで番号を振る
+                int nextNumber = GetNextParagraphNumber(folder);
+                string displayName = $"{nextNumber}.{baseName}";
+                string newFilePath = Path.Combine(folder, displayName + ".md");
+
+                SaveCurrentFile();
+                File.WriteAllText(newFilePath, sourceContent);
+
+                lstSidebar.Items.Add(displayName);
+                // 選択するとLstSidebar_SelectedIndexChangedが発火し、エディタに読み込まれる
+                lstSidebar.SelectedItem = displayName;
+                hasUnsavedChanges = true;
+            }
+        }
+
+        // 終了時：未保存の変更があれば確認ダイアログを表示し、「いいえ」の場合は終了をキャンセルする
+        private void Form1_FormClosing(object sender, FormClosingEventArgs e)
+        {
+            if (!hasUnsavedChanges) return;
+
+            DialogResult result = MessageBox.Show(this,
+                "作業内容が失われますがよろしいですか？", "終了確認", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
+            if (result != DialogResult.Yes) e.Cancel = true;
         }
 
         // 「+」ボタン押下時：現在のタブ内に新規の段落（.mdファイル）を追加する
@@ -527,14 +889,7 @@ namespace SpecWikiEditor
                 }
 
                 // 既存の.mdファイルの先頭番号（例："1.概要.md"の"1"）の最大値を調べ、その次の番号を採番する
-                int nextNumber = 1;
-                foreach (string file in Directory.GetFiles(folder, "*.md"))
-                {
-                    string baseName = Path.GetFileNameWithoutExtension(file);
-                    int dotIndex = baseName.IndexOf('.');
-                    if (dotIndex > 0 && int.TryParse(baseName.Substring(0, dotIndex), out int num) && num + 1 > nextNumber)
-                        nextNumber = num + 1;
-                }
+                int nextNumber = GetNextParagraphNumber(folder);
 
                 string displayName = $"{nextNumber}.{name}";
                 string newFilePath = Path.Combine(folder, displayName + ".md");
@@ -546,6 +901,7 @@ namespace SpecWikiEditor
                 lstSidebar.Items.Add(displayName);
                 // 選択するとLstSidebar_SelectedIndexChangedが発火し、エディタに読み込まれる
                 lstSidebar.SelectedItem = displayName;
+                hasUnsavedChanges = true;
             }
         }
 
@@ -583,6 +939,7 @@ namespace SpecWikiEditor
                 currentFilePath = "";
 
             lstSidebar.Items.RemoveAt(lstSidebar.SelectedIndex);
+            hasUnsavedChanges = true;
 
             // 段落が1つも無くなった場合は、エディタも空にしておく
             // （残っていれば SelectedIndexChanged が自動発火し、次の段落が読み込まれる）

@@ -162,7 +162,8 @@
             // 
             splitContainer1.Panel2.Controls.Add(tableLayoutPanelRight);
             splitContainer1.Size = new Size(800, 450);
-            splitContainer1.SplitterDistance = 319;
+            // 段落リスト:エディタ:右ウィンドウ = 1:5:4 の比率(左側全体は6/10=480px)に戻す
+            splitContainer1.SplitterDistance = 480;
             splitContainer1.TabIndex = 0;
             // 
             // splitContainer2
@@ -184,8 +185,9 @@
             // 正しく領域が確保されない（後から追加した方が手前に描画され、Fill側と重なって隠れてしまう）
             splitContainer2.Panel2.Controls.Add(txtEditor);
             splitContainer2.Panel2.Controls.Add(pnlEditorToolbar);
-            splitContainer2.Size = new Size(319, 450);
-            splitContainer2.SplitterDistance = 39;
+            splitContainer2.Size = new Size(480, 450);
+            // 段落リストの幅は左側全体(480px)の1/6=80px
+            splitContainer2.SplitterDistance = 80;
             splitContainer2.TabIndex = 0;
             // 
             // pnlSidebarBottom
@@ -196,23 +198,23 @@
             pnlSidebarBottom.Location = new Point(0, 422);
             pnlSidebarBottom.Margin = new Padding(0);
             pnlSidebarBottom.Name = "pnlSidebarBottom";
-            pnlSidebarBottom.Size = new Size(39, 28);
+            pnlSidebarBottom.Size = new Size(80, 28);
             pnlSidebarBottom.TabIndex = 1;
-            // 
+            //
             // btnAddFile
-            // 
+            //
             btnAddFile.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-            btnAddFile.Location = new Point(72, 3);
+            btnAddFile.Location = new Point(46, 3);
             btnAddFile.Name = "btnAddFile";
             btnAddFile.Size = new Size(28, 22);
             btnAddFile.TabIndex = 1;
             btnAddFile.Text = "+";
             btnAddFile.UseVisualStyleBackColor = true;
-            // 
+            //
             // btnRemoveFile
-            // 
+            //
             btnRemoveFile.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-            btnRemoveFile.Location = new Point(42, 3);
+            btnRemoveFile.Location = new Point(16, 3);
             btnRemoveFile.Name = "btnRemoveFile";
             btnRemoveFile.Size = new Size(28, 22);
             btnRemoveFile.TabIndex = 0;
@@ -225,7 +227,7 @@
             lstSidebar.FormattingEnabled = true;
             lstSidebar.Location = new Point(0, 0);
             lstSidebar.Name = "lstSidebar";
-            lstSidebar.Size = new Size(39, 450);
+            lstSidebar.Size = new Size(80, 422);
             lstSidebar.TabIndex = 0;
             toolTip1.SetToolTip(lstSidebar, "段落");
             // 

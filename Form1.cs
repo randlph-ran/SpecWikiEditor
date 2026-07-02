@@ -1,12 +1,18 @@
 ﻿#nullable disable
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
+using System.Net;
 using System.Text;
 using System.Windows.Forms;
 using Markdig;
 
+// SpecWikiEditor アプリケーションのメインフォーム実装。
+// - タブ/段落（フォルダ・Markdownファイル）の管理
+// - Markdown エディタとリアルタイムプレビュー(WebView2)
+// - 画像アセットの管理(assetsフォルダ) と HTML 出力
 namespace SpecWikiEditor
 {
     // メインフォームクラス。UIイベントとファイル操作、プレビュー更新を担当する。
@@ -30,6 +36,33 @@ namespace SpecWikiEditor
         // ・背景色/文字色を明示指定し、閲覧環境のダークモード設定による自動反転（黒背景に黒文字等）を防ぐ
         private const string CommonPreviewCss =
             "html, body { background-color: #ffffff; color: #000000; } img { max-width: 100%; height: auto; }";
+
+        // 「サイト出力」で生成する各ページ共通のCSS。BuildSitePageHtmlが埋め込むHTML構造
+        // （.tabbar / .layout > .sidebar + .content）にそのまま対応させている。
+        // タブバー・サイドバー・本文の3ブロックからなる、シンプルで読みやすいレイアウトにしている
+        // （配色・デザインは今回は最低限にとどめ、実際に使ってみて必要になったタイミングで見直す想定）。
+        private const string SiteCommonCss = @"
+body { margin:0; font-family: 'Yu Gothic UI', 'Meiryo', sans-serif; background:#ffffff; color:#000000; }
+/* 画面上部の帯。全タブ分のボタン(.tab-button)を横並びで表示する */
+.tabbar { background:#2d2d30; padding:8px 8px 0 8px; }
+.tab-button { margin-right:4px; padding:8px 14px; border:none; border-radius:4px 4px 0 0; cursor:pointer; background:#555; color:#fff; font-size:14px; }
+/* 現在選択中のタブのボタンだけ色を変えて強調する。JSのshowTab()がこのクラスを付け外しする */
+.tab-button.active { background:#007acc; }
+/* サイドバーと本文を横並びにする2カラムレイアウト */
+.layout { display:flex; align-items:flex-start; }
+.sidebar { width:220px; flex-shrink:0; border-right:1px solid #ddd; padding:12px; box-sizing:border-box; min-height:100vh; }
+/* 各タブ分のリンク一覧(div)。既定では全て非表示にし、.active が付いているものだけを表示する。
+   これにより「全タブ分のサイドバーを埋め込みつつ、見た目には1つしか出さない」を実現している */
+.sidebar-list { display:none; }
+.sidebar-list.active { display:block; }
+.sidebar-list a { display:block; padding:6px 4px; color:#333; text-decoration:none; border-radius:4px; }
+.sidebar-list a:hover { background:#f0f0f0; }
+/* 「今まさに見ているこのページ」へのリンクを、現在地としてハイライトする */
+.sidebar-list a.current { font-weight:bold; color:#007acc; background:#eaf4fc; }
+.content { flex:1; padding:24px; min-width:0; }
+/* 画像がコンテンツ幅からはみ出さないよう自動縮小する（プレビュー/単体HTML出力と同じ考え方） */
+.content img { max-width:100%; height:auto; }
+";
 
         // タブに描画する「×」（閉じる）ボタンの一辺のサイズ(px)
         private const int TabCloseButtonSize = 16;
@@ -128,6 +161,7 @@ namespace SpecWikiEditor
                 menuLoadWork.Click += MenuLoadWork_Click;
                 menuLoadMdFile.Click += MenuLoadMdFile_Click;
                 menuExportHtml.Click += (s, e) => ExportCurrentFileToHtml();
+                menuExportSite.Click += (s, e) => ExportSiteToFolder();
                 menuSettings.Click += MenuSettings_Click;
                 menuExit.Click += (s, e) => this.Close();
             }
@@ -195,18 +229,21 @@ namespace SpecWikiEditor
         //   ボタン1つ1つの実際のBottom座標を直接調べて、その最大値をそのまま高さとして採用する。
         private void AdjustEditorToolbarHeight()
         {
+            // パネルの幅が0以下、または子コントロールが1つも無い場合は計算せずに終了する
             if (pnlEditorToolbar.Width <= 0 || pnlEditorToolbar.Controls.Count == 0) return;
-
+            // 各ボタンのBottom座標を調べ、最大値を求める
             int maxBottom = 0;
+            // Margin.Bottomを加算して、ボタンの下端から余白まで含めた座標を計算する
             foreach (Control control in pnlEditorToolbar.Controls)
             {
                 int bottom = control.Bottom + control.Margin.Bottom;
                 if (bottom > maxBottom) maxBottom = bottom;
             }
+            // パネルのPadding.Bottomも加算して、パネル自身の下端まで含めた高さを計算する
             int neededHeight = maxBottom + pnlEditorToolbar.Padding.Bottom;
-
+            // すでに必要な高さと同じであれば何もしない
             if (pnlEditorToolbar.Height == neededHeight) return;
-
+            // 計算した高さをパネルに反映する
             pnlEditorToolbar.Height = neededHeight;
             // Dockの再計算を即座に反映させ、隣接するtxtEditorの開始位置がずれないようにする
             splitContainer2.Panel2.PerformLayout();
@@ -306,8 +343,37 @@ namespace SpecWikiEditor
                 SetupTabPageRenameControls(page);
                 tabControlMain.TabPages.Add(page);
             }
-            // 最初のタブを選択してサイドバーを読み込む
+
+            // 「TOP」タブ（サイト出力時の入口ページ）が存在する場合、常に一番左に来るよう並べ替える
+            EnsureTopTabIsFirst();
+
+            // 最初のタブ（TOPタブがあればTOP）を選択してサイドバーを読み込む
             if (tabControlMain.TabPages.Count > 0) TabControlMain_SelectedIndexChanged(null, null);
+        }
+
+        // 「TOP」という名前のタブ（サイト出力機能で、サイトの入口ページとして扱う予約タブ名）が
+        // 存在する場合、タブ一覧の先頭（一番左）に来るよう並び替える。
+        // 「TOP」タブが無い場合や、既に先頭にある場合は何もしない。
+        // タブ一覧の再構築時(LoadTabsFromFolders)・新規タブ追加時(BtnAddTab_Click)・
+        // タブ名称変更時(ApplyRename、他のタブをTOPにリネームした場合)のいずれからも呼び出す。
+        private void EnsureTopTabIsFirst()
+        {
+            for (int i = 0; i < tabControlMain.TabPages.Count; i++)
+            {
+                if (tabControlMain.TabPages[i].Text != "TOP") continue;
+                if (i == 0) return; // 既に先頭にあるので並び替え不要
+
+                // TabPages.Insert/RemoveAtの間、選択中のタブが変わったように見えてしまわないよう、
+                // 現在選択中のタブを覚えておき、並び替え後に選択し直す
+                TabPage previouslySelected = tabControlMain.SelectedTab;
+
+                TabPage topPage = tabControlMain.TabPages[i];
+                tabControlMain.TabPages.RemoveAt(i);
+                tabControlMain.TabPages.Insert(0, topPage);
+
+                if (previouslySelected != null) tabControlMain.SelectedTab = previouslySelected;
+                return;
+            }
         }
 
         private void TabControlMain_SelectedIndexChanged(object sender, EventArgs e)
@@ -320,6 +386,9 @@ namespace SpecWikiEditor
             string[] files = Directory.GetFiles(tabControlMain.SelectedTab.Tag.ToString(), "*.md");
             foreach (string file in files) lstSidebar.Items.Add(Path.GetFileNameWithoutExtension(file));
             if (lstSidebar.Items.Count > 0) lstSidebar.SelectedIndex = 0;
+            // ListBoxは内部のスクロール位置(TopIndex)が、新規タブ追加直後などの連続したレイアウト
+            // 変更の影響でリセットされず、1件目が表示範囲外に隠れてしまうことがあるため明示的に戻す
+            lstSidebar.TopIndex = 0;
 
             // タブ切替に伴い、タブページ内のリネーム欄の表示も最新の状態に更新する
             RefreshRenameBoxes();
@@ -528,6 +597,12 @@ namespace SpecWikiEditor
         // タブヘッダーのオーナードロー処理：タブ名と「×」ボタンを自前で描画する
         private void TabControlMain_DrawItem(object sender, DrawItemEventArgs e)
         {
+            // タブの追加・削除・並び替え（EnsureTopTabIsFirstのRemoveAt+Insertなど）を行った直後は、
+            // 変更前のタブ数を前提にした描画メッセージが遅れて届くことがある。
+            // その場合 e.Index が現在のタブ数に対して範囲外になり得るため、範囲チェックして無視する
+            // （チェックせずにアクセスすると ArgumentOutOfRangeException で落ちる）。
+            if (e.Index < 0 || e.Index >= tabControlMain.TabPages.Count) return;
+
             TabPage page = tabControlMain.TabPages[e.Index];
             Rectangle tabRect = tabControlMain.GetTabRect(e.Index);
 
@@ -641,6 +716,16 @@ namespace SpecWikiEditor
             if (sidebarNameBoxes.Length > 0) ((TextBox)sidebarNameBoxes[0]).Text = lstSidebar.SelectedItem?.ToString() ?? "";
         }
 
+        // 大文字小文字だけが異なる名前への変更かどうかを判定する。
+        // Windowsのファイルシステムは既定で大文字小文字を区別しないため、例えば "top" → "TOP" の
+        // ような変更は Directory.Exists/File.Exists が「自分自身」を「別の既存項目」と誤認してしまい、
+        // 「同じ名前が既に存在する」と誤って弾かれてしまう。この誤判定を避けるための判定に使う。
+        private bool IsCaseOnlyNameChange(string oldName, string newName)
+        {
+            return !string.IsNullOrEmpty(oldName) && oldName != newName &&
+                string.Equals(oldName, newName, StringComparison.OrdinalIgnoreCase);
+        }
+
         // 「名称変更」ボタン押下時：段落名称・タブ名称のうち、変更されている方をそれぞれリネームする。
         // 片方だけの変更でもよい。
         private void ApplyRename(TabPage page, TextBox txtSidebarName, TextBox txtTabName)
@@ -652,7 +737,12 @@ namespace SpecWikiEditor
                 string oldFolder = page.Tag?.ToString();
                 string newFolder = Path.Combine(currentProjectDir, newTabName);
 
-                if (Directory.Exists(newFolder))
+                // 大文字小文字だけの変更(例: "top"→"TOP")の場合、newFolderは実際には
+                // oldFolderと同一のフォルダを指しているため、Directory.Existsによる重複チェックは
+                // 行わず、大文字小文字の変更として素通しする
+                bool isCaseOnlyRename = IsCaseOnlyNameChange(page.Text, newTabName);
+
+                if (!isCaseOnlyRename && Directory.Exists(newFolder))
                 {
                     MessageBox.Show("同じ名前のタブが既に存在します。");
                 }
@@ -663,12 +753,28 @@ namespace SpecWikiEditor
                         currentFilePath.StartsWith(oldFolder, StringComparison.OrdinalIgnoreCase);
                     string fileNameOnly = wasEditingHere ? Path.GetFileName(currentFilePath) : null;
 
-                    Directory.Move(oldFolder, newFolder);
+                    if (isCaseOnlyRename)
+                    {
+                        // Directory.Move(oldFolder, newFolder) を直接呼ぶと、大文字小文字違いだけの
+                        // パスは「同一パスへの移動」とみなされて失敗する場合があるため、
+                        // 一時的な別名を経由して2段階でリネームする
+                        string tempFolder = oldFolder + "_rename_" + Guid.NewGuid().ToString("N");
+                        Directory.Move(oldFolder, tempFolder);
+                        Directory.Move(tempFolder, newFolder);
+                    }
+                    else
+                    {
+                        Directory.Move(oldFolder, newFolder);
+                    }
+
                     page.Text = newTabName;
                     page.Tag = newFolder;
                     hasUnsavedChanges = true;
 
                     if (wasEditingHere) currentFilePath = Path.Combine(newFolder, fileNameOnly);
+
+                    // 他のタブを「TOP」にリネームした場合に備え、先頭配置のルールを再適用する
+                    EnsureTopTabIsFirst();
                 }
             }
 
@@ -678,10 +784,14 @@ namespace SpecWikiEditor
             if (!string.IsNullOrEmpty(newFileDisplayName) && lstSidebar.SelectedItem != null &&
                 newFileDisplayName != lstSidebar.SelectedItem.ToString() && !string.IsNullOrEmpty(currentFolder))
             {
-                string oldFile = Path.Combine(currentFolder, lstSidebar.SelectedItem.ToString() + ".md");
+                string oldDisplayName = lstSidebar.SelectedItem.ToString();
+                string oldFile = Path.Combine(currentFolder, oldDisplayName + ".md");
                 string newFile = Path.Combine(currentFolder, newFileDisplayName + ".md");
 
-                if (File.Exists(newFile))
+                // タブ名と同様、大文字小文字だけの変更は「自分自身」なので重複扱いにしない
+                bool isCaseOnlyRename = IsCaseOnlyNameChange(oldDisplayName, newFileDisplayName);
+
+                if (!isCaseOnlyRename && File.Exists(newFile))
                 {
                     MessageBox.Show("同じ名前の段落が既に存在します。");
                 }
@@ -690,7 +800,20 @@ namespace SpecWikiEditor
                     // リネーム前に、エディタの最新内容を確実に保存しておく
                     SaveCurrentFile();
 
-                    File.Move(oldFile, newFile);
+                    if (isCaseOnlyRename)
+                    {
+                        // File.Move(oldFile, newFile) を直接呼ぶと、大文字小文字違いだけの
+                        // パスは「同一パスへの移動」とみなされて失敗する場合があるため、
+                        // 一時的な別名を経由して2段階でリネームする
+                        string tempFile = oldFile + "_rename_" + Guid.NewGuid().ToString("N");
+                        File.Move(oldFile, tempFile);
+                        File.Move(tempFile, newFile);
+                    }
+                    else
+                    {
+                        File.Move(oldFile, newFile);
+                    }
+
                     currentFilePath = newFile;
                     hasUnsavedChanges = true;
 
@@ -739,6 +862,9 @@ namespace SpecWikiEditor
                 tabControlMain.TabPages.Add(newPage);
                 tabControlMain.SelectedTab = newPage;
                 hasUnsavedChanges = true;
+
+                // 新規タブに「TOP」という名前を付けた場合に備え、先頭配置のルールを適用する
+                EnsureTopTabIsFirst();
             }
         }
 
@@ -794,6 +920,228 @@ namespace SpecWikiEditor
                 // 出力に失敗した場合はエラー内容をダイアログで通知する
                 MessageBox.Show("出力エラー: " + ex.Message);
             }
+        }
+
+        // 「サイト出力」：全タブ・全段落をリンクでつないだ、PukiWiki風の静的HTMLサイトとして書き出す。
+        //
+        // 【全体の考え方】
+        // ・段落(＝アプリ内の1つの.mdファイル)ごとに、個別のHTMLファイルを1つ生成する。
+        //   サイドバーの段落リンクをクリックすると、このファイル単位で実際にページ遷移する
+        //   （PukiWikiの各ページが個別URLを持つのと同じイメージ）。
+        // ・一方、タブの切り替えはページ遷移を伴わない。生成する全ページに「全タブ分のタブボタン」と
+        //   「全タブ分のサイドバー(段落リンク一覧)」をあらかじめ埋め込んでおき、タブボタンを押すと
+        //   JavaScriptで「どのタブのサイドバーを表示するか」を切り替えるだけにする（詳細は
+        //   BuildSitePageHtml のコメントを参照）。
+        // ・「TOP」は特別な予約タブ名として扱う。TOPタブの最初の段落を、サイト全体の入口となる
+        //   ルート直下の index.html として複製する（ブラウザで出力先フォルダを開いたときに
+        //   最初に表示されるページになる）。
+        private void ExportSiteToFolder()
+        {
+            try
+            {
+                // 出力対象の内容が最新であることを保証するため、出力前に編集中の内容を保存しておく
+                SaveCurrentFile();
+
+                // --- 事前チェック：サイトの入口となる「TOP」タブが存在し、中身が空でないこと ---
+                // 「TOP」は名前で判定する予約タブ名。存在しない・空の場合はここで打ち切り、
+                // 中途半端な（index.htmlが無い）サイトが生成されるのを防ぐ。
+                TabPage topTab = null;
+                foreach (TabPage page in tabControlMain.TabPages)
+                {
+                    if (page.Text == "TOP") { topTab = page; break; }
+                }
+                if (topTab == null)
+                {
+                    MessageBox.Show("サイト出力には「TOP」という名前のタブが必要です。\n先にTOPタブを作成し、段落を1つ以上追加してください。");
+                    return;
+                }
+                string topFolder = topTab.Tag?.ToString();
+                string[] topFiles = string.IsNullOrEmpty(topFolder) ? Array.Empty<string>() : Directory.GetFiles(topFolder, "*.md");
+                if (topFiles.Length == 0)
+                {
+                    MessageBox.Show("「TOP」タブに段落が1つもありません。サイト出力には最低1つの段落が必要です。");
+                    return;
+                }
+
+                // 複数ファイル・複数フォルダを書き出すため、単一ファイル用の SaveFileDialog ではなく
+                // フォルダを選ばせる FolderBrowserDialog を使う
+                using (var dialog = new FolderBrowserDialog { Description = "サイトの出力先フォルダを選択してください。" })
+                {
+                    if (dialog.ShowDialog(this) != DialogResult.OK) return;
+                    string outputRoot = dialog.SelectedPath;
+
+                    // --- 事前準備：全タブ・全段落の情報を1回だけ集めておく ---
+                    // BuildSitePageHtml では「タブバー」と「全タブ分のサイドバー」を毎ページ生成するために
+                    // 全タブ・全段落の一覧が必要になる。ページ生成のたびにファイルシステムを毎回
+                    // 読み直すと非効率かつタイミングによって内容がずれる可能性があるため、
+                    // このタイミングで一度だけ収集し、以降は同じ一覧(allTabs)を使い回す。
+                    var allTabs = new List<(string TabName, string FolderPath, List<string> Paragraphs)>();
+                    foreach (TabPage page in tabControlMain.TabPages)
+                    {
+                        string folder = page.Tag?.ToString();
+                        if (string.IsNullOrEmpty(folder)) continue;
+
+                        var paragraphNames = new List<string>();
+                        foreach (string file in Directory.GetFiles(folder, "*.md"))
+                            paragraphNames.Add(Path.GetFileNameWithoutExtension(file));
+
+                        allTabs.Add((page.Text, folder, paragraphNames));
+                    }
+
+                    // --- 全タブ・全段落分のページを生成する ---
+                    // 出力先は "<出力先フォルダ>\<タブ名>\<段落名>.html"。
+                    // これらのファイルはサイトのルート(出力先フォルダ直下)から見て1段深い場所に
+                    // あるため、リンク・画像パスの相対参照には "../" を付ける必要がある
+                    // （BuildSitePageHtml の relativePrefix 引数として渡す）。
+                    foreach (var tab in allTabs)
+                    {
+                        string tabOutputDir = Path.Combine(outputRoot, tab.TabName);
+                        Directory.CreateDirectory(tabOutputDir);
+
+                        foreach (string paragraphName in tab.Paragraphs)
+                        {
+                            string mdPath = Path.Combine(tab.FolderPath, paragraphName + ".md");
+                            // 通常はファイルが存在するはずだが、念のため存在チェックしておく
+                            string markdownText = File.Exists(mdPath) ? File.ReadAllText(mdPath) : "";
+                            string html = BuildSitePageHtml(tab.TabName, paragraphName, markdownText, "../", allTabs);
+                            File.WriteAllText(Path.Combine(tabOutputDir, paragraphName + ".html"), html);
+                        }
+                    }
+
+                    // --- アセット(画像)のコピー ---
+                    // タブ名フォルダの内部からもルート直下からも参照できるよう、assetsは
+                    // 出力先フォルダの直下に1箇所だけ配置し、各ページからは相対パスで参照させる
+                    // （BuildSitePageHtml内で "<relativePrefix>assets/xxx" という形に置換している）。
+                    string outputAssetsDir = Path.Combine(outputRoot, "assets");
+                    Directory.CreateDirectory(outputAssetsDir);
+                    foreach (string srcFile in Directory.GetFiles(assetsDir))
+                        File.Copy(srcFile, Path.Combine(outputAssetsDir, Path.GetFileName(srcFile)), true);
+
+                    // --- サイトの入口(index.html)を生成する ---
+                    // 「TOP」タブの最初の段落（Directory.GetFilesの列挙順で先頭に来たもの。通常は
+                    // "1.〇〇.md" が採番ルール上先頭になる）を、ルート直下の index.html として
+                    // もう一度生成する。中身は "TOP\<同じ段落名>.html" と実質同じだが、
+                    // 出力位置がルート直下(1段浅い)になるため、relativePrefixを "" にして
+                    // 別途生成し直している（単純なファイルコピーだと相対パスがずれてしまうため）。
+                    string topFirstParagraph = Path.GetFileNameWithoutExtension(topFiles[0]);
+                    string topMarkdown = File.ReadAllText(topFiles[0]);
+                    string indexHtml = BuildSitePageHtml("TOP", topFirstParagraph, topMarkdown, "", allTabs);
+                    string indexFilePath = Path.Combine(outputRoot, "index.html");
+                    File.WriteAllText(indexFilePath, indexHtml);
+
+                    MessageBox.Show("サイトを出力しました。");
+                    // 既定のブラウザでindex.htmlを開き、その場でタブ切替・ページ遷移の
+                    // つながりを確認できるようにする
+                    Process.Start(new ProcessStartInfo(indexFilePath) { UseShellExecute = true });
+                }
+            }
+            catch (Exception ex)
+            {
+                // フォルダアクセス権限が無い・ディスク容量不足など、書き出し中の失敗をまとめて捕捉する
+                MessageBox.Show("サイト出力エラー: " + ex.Message);
+            }
+        }
+
+        // サイト出力用の1ページ分のHTMLを組み立てる。1つの段落(.mdファイル)につき、この関数を1回呼び出す。
+        //
+        // 引数の意味:
+        // currentTabName/currentParagraphName : このページ自身が属するタブ名・段落名。
+        //   このページを開いた瞬間にどのタブのサイドバーを最初から表示しておくか（isCurrentTab）、
+        //   サイドバー中のどのリンクを「現在地」として太字ハイライトするか（isCurrentParagraph）の
+        //   判定に使う。JSを使わずサーバー（ここではC#側）でレンダリング時点で決めてしまうことで、
+        //   ページを開いた瞬間に正しい状態で表示され、ちらつき（一瞬違うタブが見える等）が起きない。
+        // markdownText : このページの本文(Markdown)。既存のプレビュー・単体HTML出力と同じ
+        //   Markdigパイプライン(markdownPipeline)でHTML化する。
+        // relativePrefix : サイトのルート(出力先フォルダ)から見た、このページの深さを表す接頭辞。
+        //   ルート直下のindex.html用は""（そのまま "assets/xxx" 等で参照できる）、
+        //   1段深い "<タブ名>\<段落名>.html" 用は"../"（"../assets/xxx"のように1段上がる必要がある）。
+        //   サイドバー内のリンクにも、画像パスにも同じ接頭辞を使う。
+        // allTabs : ExportSiteToFolder で事前に収集した、全タブ・全段落の一覧。
+        //   このページの内容には関係ない「他のタブ・他の段落」の情報も含まれているが、これは
+        //   全ページ共通で「タブバー(全タブ分のボタン)」と「サイドバー(全タブ分のリンク一覧)」を
+        //   丸ごと埋め込む設計にしているため（タブボタンを押した瞬間にJSだけで切り替えるには、
+        //   切替先のサイドバーの中身も最初からページ内に存在している必要があるため）。
+        private string BuildSitePageHtml(string currentTabName, string currentParagraphName, string markdownText,
+            string relativePrefix, List<(string TabName, string FolderPath, List<string> Paragraphs)> allTabs)
+        {
+            // 本文をHTML化する。既存のBuildHtmlDocument(プレビュー/単体HTML出力用)と同様に、
+            // 一旦 "https://wiki-assets" という仮想ホスト表記に統一してから、このページの深さに
+            // 応じた実際の相対パス(relativePrefix + "assets")に置き換える2段階の変換を行っている。
+            string bodyHtml = Markdown.ToHtml(markdownText, markdownPipeline);
+            bodyHtml = bodyHtml.Replace(assetsDir.Replace("\\", "/"), "https://wiki-assets");
+            bodyHtml = bodyHtml.Replace("https://wiki-assets", relativePrefix + "assets");
+
+            // --- タブバー(全タブ分のボタン)とサイドバー(全タブ分のリンク一覧)をまとめて組み立てる ---
+            // どちらも allTabs を1回だけループして同時に構築する。
+            StringBuilder tabBarHtml = new StringBuilder();
+            StringBuilder sidebarHtml = new StringBuilder();
+            foreach (var tab in allTabs)
+            {
+                // タブ名・段落名にはユーザーが自由な文字列を入力できるため、HTML特殊文字
+                // （< > & " など）が含まれていてもタグ構造が壊れないよう必ずHtmlEncodeする
+                string tabNameEncoded = WebUtility.HtmlEncode(tab.TabName);
+                bool isCurrentTab = tab.TabName == currentTabName;
+
+                // タブボタン: data-tab属性にタブ名を持たせておき、JS側(showTab)でこの値を見て
+                // 対応するサイドバー(下記sidebar-list)を表示/非表示切り替える。
+                // 自分自身が属するタブのボタンには、最初から"active"クラス（見た目の強調）を付けておく
+                tabBarHtml.Append(
+                    $"<button type=\"button\" data-tab=\"{tabNameEncoded}\" class=\"tab-button{(isCurrentTab ? " active" : "")}\">{tabNameEncoded}</button>");
+
+                // サイドバー: タブごとに1つの<div>(data-tab属性で紐付け)を作り、CSS側で
+                // ".sidebar-list"は非表示、".sidebar-list.active"だけ表示、というルールにしている。
+                // 自タブの<div>にだけ最初から"active"を付けることで、ページを開いた時点で
+                // 正しいサイドバーが（JS実行を待たずに）表示された状態になる。
+                sidebarHtml.Append($"<div class=\"sidebar-list{(isCurrentTab ? " active" : "")}\" data-tab=\"{tabNameEncoded}\">");
+                foreach (string paragraphName in tab.Paragraphs)
+                {
+                    string paragraphEncoded = WebUtility.HtmlEncode(paragraphName);
+                    // 「今まさに表示しているこのページ自身」へのリンクだけ、現在地として太字表示する
+                    bool isCurrentParagraph = isCurrentTab && paragraphName == currentParagraphName;
+                    // タブ名・段落名には日本語や記号が含まれ得るため、URLとして安全な形に
+                    // パーセントエンコードする（実ファイル名自体は元の文字列のままで、
+                    // ブラウザがリンク解決時に自動でデコードして正しいファイルを開く）
+                    string href = $"{relativePrefix}{Uri.EscapeDataString(tab.TabName)}/{Uri.EscapeDataString(paragraphName)}.html";
+                    sidebarHtml.Append(
+                        $"<a href=\"{href}\" class=\"{(isCurrentParagraph ? "current" : "")}\">{paragraphEncoded}</a>");
+                }
+                sidebarHtml.Append("</div>");
+            }
+
+            // 生成するHTMLドキュメント本体。
+            // ・タブバー(tabBarHtml)とサイドバー(sidebarHtml)は上のループで既に組み立て済みで、
+            //   「今どのタブを表示すべきか」もサーバー側(C#)で決めて active クラスを付与済みのため、
+            //   ページを開いた瞬間に正しい見た目になる（JSはあくまで「ユーザーがタブボタンを
+            //   クリックした後の切り替え」だけを担当する）。
+            // ・showTab関数は、指定されたタブ名に一致する要素だけ"active"クラスを付け、
+            //   それ以外からは外す、という単純なトグル処理。サイドバー側(.sidebar-list)と
+            //   タブボタン側(.tab-button)の両方に同じロジックを適用している。
+            return $@"<!DOCTYPE html>
+<html>
+<head>
+<meta charset=""utf-8"">
+<title>{WebUtility.HtmlEncode(currentParagraphName)}</title>
+<style>{SiteCommonCss}</style>
+</head>
+<body>
+<div class=""tabbar"">{tabBarHtml}</div>
+<div class=""layout"">
+<div class=""sidebar"">{sidebarHtml}</div>
+<div class=""content"">{bodyHtml}</div>
+</div>
+<script>
+// 指定したタブ名に対応するサイドバー・タブボタンだけを active にし、他は非表示/非アクティブにする
+function showTab(name) {{
+  document.querySelectorAll('.sidebar-list').forEach(function (el) {{ el.classList.toggle('active', el.getAttribute('data-tab') === name); }});
+  document.querySelectorAll('.tab-button').forEach(function (el) {{ el.classList.toggle('active', el.getAttribute('data-tab') === name); }});
+}}
+// 各タブボタンのクリックにshowTabを紐付ける（ページ遷移なしで即座にサイドバーが切り替わる）
+document.querySelectorAll('.tab-button').forEach(function (btn) {{
+  btn.addEventListener('click', function () {{ showTab(btn.getAttribute('data-tab')); }});
+}});
+</script>
+</body>
+</html>";
         }
 
         // 指定フォルダ内の既存.mdファイルの先頭番号（例:"1.概要.md"の"1"）の最大値を調べ、その次の番号を返す。
@@ -919,6 +1267,7 @@ namespace SpecWikiEditor
                 lstSidebar.Items.Add(displayName);
                 // 選択するとLstSidebar_SelectedIndexChangedが発火し、エディタに読み込まれる
                 lstSidebar.SelectedItem = displayName;
+                lstSidebar.TopIndex = 0;
                 hasUnsavedChanges = true;
             }
         }
@@ -968,6 +1317,7 @@ namespace SpecWikiEditor
                 lstSidebar.Items.Add(displayName);
                 // 選択するとLstSidebar_SelectedIndexChangedが発火し、エディタに読み込まれる
                 lstSidebar.SelectedItem = displayName;
+                lstSidebar.TopIndex = 0;
                 hasUnsavedChanges = true;
             }
         }

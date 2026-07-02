@@ -35,6 +35,7 @@
             menuLoadWork = new ToolStripMenuItem();
             menuLoadMdFile = new ToolStripMenuItem();
             menuExportHtml = new ToolStripMenuItem();
+            menuExportSite = new ToolStripMenuItem();
             menuSettings = new ToolStripMenuItem();
             toolStripSeparator1 = new ToolStripSeparator();
             menuExit = new ToolStripMenuItem();
@@ -102,7 +103,7 @@
             // 
             // fileToolStripMenuItem
             // 
-            fileToolStripMenuItem.DropDownItems.AddRange(new ToolStripItem[] { menuSaveWork, menuLoadWork, menuLoadMdFile, menuExportHtml, menuSettings, toolStripSeparator1, menuExit });
+            fileToolStripMenuItem.DropDownItems.AddRange(new ToolStripItem[] { menuSaveWork, menuLoadWork, menuLoadMdFile, menuExportHtml, menuExportSite, menuSettings, toolStripSeparator1, menuExit });
             fileToolStripMenuItem.Name = "fileToolStripMenuItem";
             fileToolStripMenuItem.Size = new Size(53, 20);
             fileToolStripMenuItem.Text = "ファイル";
@@ -130,6 +131,15 @@
             menuExportHtml.Name = "menuExportHtml";
             menuExportHtml.Size = new Size(32, 19);
             menuExportHtml.Text = "HTML出力";
+            //
+            // menuExportSite
+            // クリックすると Form1.ExportSiteToFolder() が呼ばれる。
+            // 「HTML出力」(現在編集中の1ファイルのみ)とは別に、全タブ・全段落をリンクでつないだ
+            // 静的HTMLサイト一式(タブごとのフォルダ＋段落ごとのHTML＋index.html)を書き出す機能。
+            //
+            menuExportSite.Name = "menuExportSite";
+            menuExportSite.Size = new Size(32, 19);
+            menuExportSite.Text = "サイト出力";
             //
             // menuSettings
             //
@@ -643,6 +653,7 @@
         private ToolStripMenuItem menuLoadWork;
         private ToolStripMenuItem menuLoadMdFile;
         private ToolStripMenuItem menuExportHtml;
+        private ToolStripMenuItem menuExportSite;
         private ToolStripMenuItem menuSettings;
         private ToolStripSeparator toolStripSeparator1;
         private ToolStripMenuItem menuExit;

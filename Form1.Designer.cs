@@ -32,6 +32,7 @@
             menuStrip1 = new MenuStrip();
             fileToolStripMenuItem = new ToolStripMenuItem();
             menuSaveWork = new ToolStripMenuItem();
+            menuOverwriteSave = new ToolStripMenuItem();
             menuLoadWork = new ToolStripMenuItem();
             menuLoadMdFile = new ToolStripMenuItem();
             menuExportHtml = new ToolStripMenuItem();
@@ -103,7 +104,7 @@
             // 
             // fileToolStripMenuItem
             // 
-            fileToolStripMenuItem.DropDownItems.AddRange(new ToolStripItem[] { menuSaveWork, menuLoadWork, menuLoadMdFile, menuExportHtml, menuExportSite, menuSettings, toolStripSeparator1, menuExit });
+            fileToolStripMenuItem.DropDownItems.AddRange(new ToolStripItem[] { menuSaveWork, menuOverwriteSave, menuLoadWork, menuLoadMdFile, menuExportHtml, menuExportSite, menuSettings, toolStripSeparator1, menuExit });
             fileToolStripMenuItem.Name = "fileToolStripMenuItem";
             fileToolStripMenuItem.Size = new Size(53, 20);
             fileToolStripMenuItem.Text = "ファイル";
@@ -113,7 +114,15 @@
             menuSaveWork.Name = "menuSaveWork";
             menuSaveWork.Size = new Size(32, 19);
             menuSaveWork.Text = "作業内容のセーブ";
-            // 
+            //
+            // menuOverwriteSave
+            // クリックすると Form1.SaveWork(forceDialog:false, showCompletionMessage:false) が呼ばれ、
+            // 既に保存先が分かっていればダイアログを出さずそのまま上書き保存する（Ctrl+Sと同じ処理）。
+            //
+            menuOverwriteSave.Name = "menuOverwriteSave";
+            menuOverwriteSave.Size = new Size(32, 19);
+            menuOverwriteSave.Text = "作業内容の上書き保存(Ctrl+S)";
+            //
             // menuLoadWork
             // 
             menuLoadWork.Name = "menuLoadWork";
@@ -650,6 +659,7 @@
         private MenuStrip menuStrip1;
         private ToolStripMenuItem fileToolStripMenuItem;
         private ToolStripMenuItem menuSaveWork;
+        private ToolStripMenuItem menuOverwriteSave;
         private ToolStripMenuItem menuLoadWork;
         private ToolStripMenuItem menuLoadMdFile;
         private ToolStripMenuItem menuExportHtml;

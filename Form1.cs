@@ -28,8 +28,35 @@ namespace SpecWikiEditor
         // Default.cfg（保存先パス・フォルダ名・起動時最大化）の内容を保持する
         private AppConfig appConfig;
 
+        // 直近に保存・読み込みした「作業内容(.spc)」ファイルのフルパス。
+        // まだ一度も保存・読み込みしていない場合は null（タイトルバーには既定の "Form1" を表示する）。
+        private string currentWorkFilePath = null;
+
         // 「作業内容のセーブ」以降に変更が加えられたかどうか。終了時の確認ダイアログの判定に使う。
-        private bool hasUnsavedChanges = false;
+        // プロパティ化し、値が変わるたびに自動でタイトルバー(UpdateTitle)を更新する。
+        // これにより、更新箇所ごとに個別にUpdateTitle()を呼び忘れる心配がなくなる。
+        private bool _hasUnsavedChanges = false;
+        private bool hasUnsavedChanges
+        {
+            get => _hasUnsavedChanges;
+            set
+            {
+                _hasUnsavedChanges = value;
+                UpdateTitle();
+            }
+        }
+
+        // タイトルバーの表示を、現在の保存先ファイル名と未保存フラグに合わせて更新する。
+        // ・保存/読み込み先がまだ無い場合は既定の "Form1"
+        // ・保存/読み込み先がある場合はそのファイル名(拡張子なし)
+        // ・未保存の変更がある場合は末尾に " *" を付けて知らせる
+        private void UpdateTitle()
+        {
+            string baseTitle = string.IsNullOrEmpty(currentWorkFilePath)
+                ? "Form1"
+                : Path.GetFileNameWithoutExtension(currentWorkFilePath);
+            this.Text = baseTitle + (_hasUnsavedChanges ? " *" : "");
+        }
 
         // プレビュー・出力HTMLの両方で使う共通CSS。
         // ・画像がプレビュー/出力先の表示幅に収まるよう自動縮小させる（元の画像ファイルには一切手を加えない）
@@ -97,6 +124,10 @@ body { margin:0; font-family: 'Yu Gothic UI', 'Meiryo', sans-serif; background:#
                 // 終了時、未保存の変更があれば確認する
                 this.FormClosing += Form1_FormClosing;
 
+                // Ctrl+S（上書き保存）をどのコントロールにフォーカスがあっても拾えるようにする
+                this.KeyPreview = true;
+                this.KeyDown += Form1_KeyDown;
+
                 // 主要なUI要素が存在するかチェック（見つからなければ致命的エラー）
                 if (tabControlMain == null || lstSidebar == null || txtEditor == null || btnAddTab == null || btnExport == null
                     || btnAddFile == null || btnRemoveFile == null || cmbFontSize == null)
@@ -157,7 +188,11 @@ body { margin:0; font-family: 'Yu Gothic UI', 'Meiryo', sans-serif; background:#
                 btnRemoveFile.Click += BtnRemoveFile_Click;
 
                 // 「ファイル」メニューの各項目にイベントを割り当てる
-                menuSaveWork.Click += (s, e) => SaveWorkToSpc();
+                // 「作業内容のセーブ」：常に保存先をダイアログで選ばせ、保存完了メッセージも表示する
+                menuSaveWork.Click += (s, e) => SaveWork(forceDialog: true, showCompletionMessage: true);
+                // 「作業内容の上書き保存」：既に保存先が分かっていればそこへ無言で上書き保存する
+                // （まだ保存先が無い場合のみダイアログを表示する）。Ctrl+Sと同じ処理。
+                menuOverwriteSave.Click += (s, e) => SaveWork(forceDialog: false, showCompletionMessage: false);
                 menuLoadWork.Click += MenuLoadWork_Click;
                 menuLoadMdFile.Click += MenuLoadMdFile_Click;
                 menuExportHtml.Click += (s, e) => ExportCurrentFileToHtml();
@@ -1159,39 +1194,74 @@ document.querySelectorAll('.tab-button').forEach(function (btn) {{
             return nextNumber;
         }
 
-        // 「作業内容のセーブ」：現在のWikiProjectフォルダ全体（全タブ・全段落・assets）を
-        // 1つの.spcファイル（実体はZIP形式）に固めて保存する。
-        // 保存できた場合はtrue、ダイアログをキャンセルした場合や失敗した場合はfalseを返す
-        // （「作業内容のロード」で保存してから読み込む場合の判定に使う）。
-        private bool SaveWorkToSpc()
+        // 現在のWikiProjectフォルダ全体（全タブ・全段落・assets）を1つの.spcファイル
+        // （実体はZIP形式）に固めて保存する。「作業内容のセーブ」「作業内容の上書き保存」
+        // 「Ctrl+S」の3箇所すべてから、引数を変えて共通で呼び出す。
+        //
+        // forceDialog : true の場合、既に保存先が分かっていても必ず保存先ダイアログを表示する
+        //   （「作業内容のセーブ」用。常に保存先を選び直せるようにするため）。
+        //   false の場合、currentWorkFilePath が既に分かっていればそこへそのまま上書きし、
+        //   まだ無ければ（一度も保存・読み込みしていなければ）ダイアログを表示する
+        //   （「作業内容の上書き保存」「Ctrl+S」用。既存の保存先へ無言で上書きする動作にするため）。
+        // showCompletionMessage : 保存成功時に「作業内容を保存しました。」を表示するかどうか。
+        //   Ctrl+S・上書き保存は毎回ポップアップされると煩わしいため、通常は false にする。
+        //
+        // 戻り値: 保存できた場合はtrue、ダイアログをキャンセルした場合や失敗した場合はfalse
+        //   （「作業内容のロード」で、読み込み前に保存してから進める場合の判定に使う）。
+        private bool SaveWork(bool forceDialog, bool showCompletionMessage)
         {
             // 保存前に、編集中の内容を確実にファイルへ反映しておく
             SaveCurrentFile();
 
-            using (var dialog = new SaveFileDialog { Filter = "作業内容ファイル (*.spc)|*.spc", FileName = "WikiProject.spc" })
+            string targetPath = currentWorkFilePath;
+
+            // 保存先ダイアログが必要なケース：毎回選ばせたい場合、または保存先がまだ分かっていない場合
+            if (forceDialog || string.IsNullOrEmpty(targetPath))
             {
-                if (dialog.ShowDialog(this) != DialogResult.OK) return false;
-
-                try
+                using (var dialog = new SaveFileDialog { Filter = "作業内容ファイル (*.spc)|*.spc", FileName = "WikiProject.spc" })
                 {
-                    // 同名ファイルが既に存在するとZipFile.CreateFromDirectoryが失敗するため、先に削除する
-                    if (File.Exists(dialog.FileName)) File.Delete(dialog.FileName);
-                    ZipFile.CreateFromDirectory(currentProjectDir, dialog.FileName);
+                    if (dialog.ShowDialog(this) != DialogResult.OK) return false;
+                    targetPath = dialog.FileName;
+                }
+            }
 
-                    hasUnsavedChanges = false;
-                    MessageBox.Show("作業内容を保存しました。");
-                    return true;
-                }
-                catch (Exception ex)
-                {
-                    MessageBox.Show("保存エラー: " + ex.Message);
-                    return false;
-                }
+            try
+            {
+                // 同名ファイルが既に存在するとZipFile.CreateFromDirectoryが失敗するため、先に削除する
+                if (File.Exists(targetPath)) File.Delete(targetPath);
+                ZipFile.CreateFromDirectory(currentProjectDir, targetPath);
+
+                // 保存先を記憶しておくことで、次回以降の「上書き保存」やCtrl+Sで
+                // 再度ダイアログを出さずに済むようにする。あわせてタイトルバーにも反映される
+                // （hasUnsavedChangesのプロパティセッターがUpdateTitle()を自動で呼び出す）。
+                currentWorkFilePath = targetPath;
+                hasUnsavedChanges = false;
+
+                if (showCompletionMessage) MessageBox.Show("作業内容を保存しました。");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("保存エラー: " + ex.Message);
+                return false;
+            }
+        }
+
+        // Ctrl+S押下時：常に「上書き保存」として扱う（保存先が無ければダイアログ、あれば無言で上書き）
+        private void Form1_KeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.Control && e.KeyCode == Keys.S)
+            {
+                // OSの警告音や、フォーカス中のコントロールへの'S'入力を防ぐ
+                e.Handled = true;
+                e.SuppressKeyPress = true;
+                SaveWork(forceDialog: false, showCompletionMessage: false);
             }
         }
 
         // 「作業内容のロード」：.spcファイルを読み込み、現在のWikiProjectの内容を完全に置き換える。
-        // 未保存の変更がある場合は、先に「保存する／このまま続行／キャンセル」を確認する。
+        // 未保存の変更がある場合は、先に「読み込みますか?」を確認する
+        // （はい＝未保存のまま読み込む、いいえ＝保存してから読み込む、キャンセル＝読み込みを中止）。
         private void MenuLoadWork_Click(object sender, EventArgs e)
         {
             using (var openDialog = new OpenFileDialog { Filter = "作業内容ファイル (*.spc)|*.spc" })
@@ -1200,18 +1270,21 @@ document.querySelectorAll('.tab-button').forEach(function (btn) {{
 
                 if (hasUnsavedChanges)
                 {
+                    // 一般的なアプリの確認ダイアログに合わせ、「読み込みますか?」と直接尋ねる形にする。
+                    // はい＝そのまま読み込む(未保存の変更は失われる)、いいえ＝保存してから読み込む、
+                    // キャンセル＝何もせず読み込みを中止する。
                     DialogResult confirm = MessageBox.Show(this,
-                        "現在の作業内容に未保存の変更があります。読み込むと現在の内容は失われます。\n\n" +
-                        "[はい] 保存してから読み込む\n[いいえ] 保存せずに読み込む（変更は破棄されます）\n[キャンセル] 読み込みを中止する",
+                        "現在の作業内容に未保存の内容がありますが、データを読み込みますか？",
                         "確認", MessageBoxButtons.YesNoCancel, MessageBoxIcon.Warning);
 
                     if (confirm == DialogResult.Cancel) return;
-                    if (confirm == DialogResult.Yes)
+                    if (confirm == DialogResult.No)
                     {
-                        // 保存ダイアログをキャンセルした場合等は、読み込み自体も中止する
-                        if (!SaveWorkToSpc()) return;
+                        // 保存先を選んで保存し、成功した場合のみ読み込みへ進む
+                        // （保存ダイアログをキャンセルした場合等は、読み込み自体も中止する）
+                        if (!SaveWork(forceDialog: true, showCompletionMessage: true)) return;
                     }
-                    // いいえの場合はそのまま処理を続行し、現在の変更を破棄する
+                    // 「はい」の場合はそのまま処理を続行し、現在の変更を破棄する
                 }
 
                 try
@@ -1227,6 +1300,9 @@ document.querySelectorAll('.tab-button').forEach(function (btn) {{
                     InitializeProjectFolders();
                     LoadTabsFromFolders();
 
+                    // 読み込んだファイルを「現在の作業内容ファイル」として記憶する
+                    // （以後のCtrl+S・上書き保存はこのファイルへ上書きされ、タイトルバーにも反映される）
+                    currentWorkFilePath = openDialog.FileName;
                     hasUnsavedChanges = false;
                     MessageBox.Show("作業内容を読み込みました。");
                 }

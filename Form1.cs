@@ -188,6 +188,7 @@ body { margin:0; font-family: 'Yu Gothic UI', 'Meiryo', sans-serif; background:#
                 btnRemoveFile.Click += BtnRemoveFile_Click;
 
                 // 「ファイル」メニューの各項目にイベントを割り当てる
+                menuNewProject.Click += MenuNewProject_Click;
                 // 「作業内容のセーブ」：常に保存先をダイアログで選ばせ、保存完了メッセージも表示する
                 menuSaveWork.Click += (s, e) => SaveWork(forceDialog: true, showCompletionMessage: true);
                 // 「作業内容の上書き保存」：既に保存先が分かっていればそこへ無言で上書き保存する
@@ -217,17 +218,29 @@ body { margin:0; font-family: 'Yu Gothic UI', 'Meiryo', sans-serif; background:#
                 currentProjectDir = appConfig.GetProjectRootPath();
                 assetsDir = Path.Combine(currentProjectDir, "assets");
 
-                // 今回初めてDefault.cfgを作成した場合、旧バージョンで使われていた
-                // デスクトップ上のWikiProjectフォルダが残っていれば、新しい保存先へ移行する
-                if (wasConfigCreated) MigrateLegacyProjectFolder();
-
                 // 起動時の最大化設定を反映する
                 if (appConfig.MaximizeOnStartup) this.WindowState = FormWindowState.Maximized;
 
-                // プロジェクトフォルダとアセットフォルダの初期化
-                InitializeProjectFolders();
-                // フォルダ構成に基づきタブを読み込む
-                LoadTabsFromFolders();
+                if (wasConfigCreated)
+                {
+                    // 今回初めてDefault.cfgを作成した場合（アップデート後の初回起動、または
+                    // 純粋な初回起動）。旧バージョンで使われていたデスクトップ上のWikiProject
+                    // フォルダが残っていれば、新しい保存先へ移行する。
+                    // このタイミングだけは「常に空で起動」を適用せず、移行されたデータ（または
+                    // 純粋な初回起動用の既定タブ）をそのまま表示する
+                    // （直後に空へリセットしてしまうと、移行した意味が無くなるため）。
+                    MigrateLegacyProjectFolder();
+                    InitializeProjectFolders();
+                    LoadTabsFromFolders();
+                }
+                else
+                {
+                    // 通常の起動。Excel/PowerPoint等の事務系アプリと同様、
+                    // 前回の続きを自動で開くのではなく、常に新規（「TOP」タブのみの空の状態）
+                    // から開始する。前回までの作業内容を残しておきたい場合は、終了時の
+                    // 保存確認、または「作業内容のセーブ」で明示的に.spcとして保存しておく必要がある。
+                    ResetProjectToBlank();
+                }
 
                 // フォーム表示直後の実際の幅に合わせて、編集ツールバーの高さを計算しておく
                 AdjustEditorToolbarHeight();
@@ -354,12 +367,13 @@ body { margin:0; font-family: 'Yu Gothic UI', 'Meiryo', sans-serif; background:#
             if (!Directory.Exists(currentProjectDir)) Directory.CreateDirectory(currentProjectDir);
             if (!Directory.Exists(assetsDir)) Directory.CreateDirectory(assetsDir);
 
-            // プロジェクトフォルダ内にタブ用フォルダが無ければ、初期フォルダとサンプルファイルを作成
+            // プロジェクトフォルダ内にタブ用フォルダが無ければ、初期フォルダとサンプルファイルを作成する。
+            // 「サイト出力」機能が「TOP」タブを前提とするため、既定タブ名もTOPで統一している。
             if (Directory.GetDirectories(currentProjectDir).Length == 0)
             {
-                string tab1 = Path.Combine(currentProjectDir, "01_基本仕様");
+                string tab1 = Path.Combine(currentProjectDir, "TOP");
                 Directory.CreateDirectory(tab1);
-                File.WriteAllText(Path.Combine(tab1, "1.概要.md"), "# 概要\r\nここから仕様を書き始めます。");
+                File.WriteAllText(Path.Combine(tab1, "1.概要.md"), "# TOP\r\nここから仕様を書き始めます。");
             }
         }
 
@@ -1259,33 +1273,46 @@ document.querySelectorAll('.tab-button').forEach(function (btn) {{
             }
         }
 
+        // 未保存の変更がある場合に、これから行おうとしている操作の前に確認する共通処理。
+        // 「作業内容のロード」「新規作成」など、今の作業内容を失う可能性のある操作の直前に呼び出す。
+        // actionDescription には確認メッセージに埋め込む動作の説明を渡す（例:"別ファイルをロード"）。
+        //
+        // ダイアログの選択肢:
+        //   はい     → そのまま操作を続行してよい（未保存の変更は破棄される）→ true を返す
+        //   いいえ   → 保存先を選んで保存してから操作を続行する（保存に失敗・キャンセルした場合は
+        //              操作自体も中止する）→ 保存できればtrue、できなければfalseを返す
+        //   キャンセル → 何もせず操作を中止する → false を返す
+        //
+        // 戻り値がtrueの場合のみ、呼び出し元は本来行いたかった操作（読み込み・新規作成など）を続行する。
+        private bool ConfirmDiscardUnsavedChanges(string actionDescription)
+        {
+            if (!hasUnsavedChanges) return true;
+
+            DialogResult confirm = MessageBox.Show(this,
+                $"現在の作業内容に未保存の内容があります。このまま{actionDescription}すると作業内容が失われますがよろしいですか？",
+                "確認", MessageBoxButtons.YesNoCancel, MessageBoxIcon.Warning);
+
+            if (confirm == DialogResult.Cancel) return false;
+            if (confirm == DialogResult.No)
+            {
+                // 保存先を選んで保存し、成功した場合のみ操作を続行してよいとする
+                return SaveWork(forceDialog: true, showCompletionMessage: true);
+            }
+            // 「はい」の場合はそのまま続行してよい（現在の変更は破棄される）
+            return true;
+        }
+
         // 「作業内容のロード」：.spcファイルを読み込み、現在のWikiProjectの内容を完全に置き換える。
-        // 未保存の変更がある場合は、先に「読み込みますか?」を確認する
-        // （はい＝未保存のまま読み込む、いいえ＝保存してから読み込む、キャンセル＝読み込みを中止）。
+        // 未保存の変更がある場合は、先にファイル選択より前に確認する
+        // （ファイルを選んだ後で確認すると、確認の意味が薄れてしまうため）。
         private void MenuLoadWork_Click(object sender, EventArgs e)
         {
+            // 未保存の変更があれば、ファイルを選ぶ前にまず確認する
+            if (!ConfirmDiscardUnsavedChanges("別ファイルをロード")) return;
+
             using (var openDialog = new OpenFileDialog { Filter = "作業内容ファイル (*.spc)|*.spc" })
             {
                 if (openDialog.ShowDialog(this) != DialogResult.OK) return;
-
-                if (hasUnsavedChanges)
-                {
-                    // 一般的なアプリの確認ダイアログに合わせ、「読み込みますか?」と直接尋ねる形にする。
-                    // はい＝そのまま読み込む(未保存の変更は失われる)、いいえ＝保存してから読み込む、
-                    // キャンセル＝何もせず読み込みを中止する。
-                    DialogResult confirm = MessageBox.Show(this,
-                        "現在の作業内容に未保存の内容がありますが、データを読み込みますか？",
-                        "確認", MessageBoxButtons.YesNoCancel, MessageBoxIcon.Warning);
-
-                    if (confirm == DialogResult.Cancel) return;
-                    if (confirm == DialogResult.No)
-                    {
-                        // 保存先を選んで保存し、成功した場合のみ読み込みへ進む
-                        // （保存ダイアログをキャンセルした場合等は、読み込み自体も中止する）
-                        if (!SaveWork(forceDialog: true, showCompletionMessage: true)) return;
-                    }
-                    // 「はい」の場合はそのまま処理を続行し、現在の変更を破棄する
-                }
 
                 try
                 {
@@ -1310,6 +1337,51 @@ document.querySelectorAll('.tab-button').forEach(function (btn) {{
                 {
                     MessageBox.Show("読み込みエラー: " + ex.Message);
                 }
+            }
+        }
+
+        // プロジェクトの中身を「TOP」タブのみが存在する空の状態に作り直す共通処理。
+        // ・「新規作成」メニュー押下時
+        // ・通常のアプリ起動時（Excel/PowerPoint等の事務系アプリと同様、常に新規状態で
+        //   開く仕様にしたため。Default.cfgを初めて作成した回＝移行直後の回を除く）
+        // の両方から呼び出す。呼び出し元で例外処理・未保存確認を行う想定のため、ここでは行わない。
+        private void ResetProjectToBlank()
+        {
+            // 削除予定のフォルダへ書き戻さないよう、先に参照をクリアしておく
+            currentFilePath = "";
+            // 新規状態なので、以前の保存先とは切り離す
+            // （hasUnsavedChangesを更新する前にセットし、タイトルバーが正しく"Form1"に戻るようにする）
+            currentWorkFilePath = null;
+
+            // 現在のプロジェクトフォルダの中身を完全に削除してから、空のプロジェクトを作り直す
+            if (Directory.Exists(currentProjectDir)) Directory.Delete(currentProjectDir, true);
+            Directory.CreateDirectory(currentProjectDir);
+            Directory.CreateDirectory(assetsDir);
+
+            // 空のままだと編集できないタブになってしまうため、既存のタブ追加と同じルールで
+            // 「TOP」タブとサンプル段落を1つ自動生成しておく
+            string topFolder = Path.Combine(currentProjectDir, "TOP");
+            Directory.CreateDirectory(topFolder);
+            File.WriteAllText(Path.Combine(topFolder, "1.概要.md"), "# TOP\r\nここから仕様を書き始めます。");
+
+            LoadTabsFromFolders();
+        }
+
+        // 「新規作成」：プロジェクトの中身を空っぽ（「TOP」タブのみ存在する状態）にリセットする。
+        // 未保存の変更がある場合は、先に確認する。
+        private void MenuNewProject_Click(object sender, EventArgs e)
+        {
+            // 未保存の変更があれば、リセットする前にまず確認する
+            if (!ConfirmDiscardUnsavedChanges("新規作成")) return;
+
+            try
+            {
+                ResetProjectToBlank();
+                hasUnsavedChanges = false;
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("新規作成エラー: " + ex.Message);
             }
         }
 

@@ -31,6 +31,7 @@
             components = new System.ComponentModel.Container();
             menuStrip1 = new MenuStrip();
             fileToolStripMenuItem = new ToolStripMenuItem();
+            menuNewProject = new ToolStripMenuItem();
             menuSaveWork = new ToolStripMenuItem();
             menuOverwriteSave = new ToolStripMenuItem();
             menuLoadWork = new ToolStripMenuItem();
@@ -104,11 +105,20 @@
             // 
             // fileToolStripMenuItem
             // 
-            fileToolStripMenuItem.DropDownItems.AddRange(new ToolStripItem[] { menuSaveWork, menuOverwriteSave, menuLoadWork, menuLoadMdFile, menuExportHtml, menuExportSite, menuSettings, toolStripSeparator1, menuExit });
+            fileToolStripMenuItem.DropDownItems.AddRange(new ToolStripItem[] { menuNewProject, menuSaveWork, menuOverwriteSave, menuLoadWork, menuLoadMdFile, menuExportHtml, menuExportSite, menuSettings, toolStripSeparator1, menuExit });
             fileToolStripMenuItem.Name = "fileToolStripMenuItem";
             fileToolStripMenuItem.Size = new Size(53, 20);
             fileToolStripMenuItem.Text = "ファイル";
-            // 
+            //
+            // menuNewProject
+            // クリックすると Form1.MenuNewProject_Click が呼ばれる。
+            // 未保存の変更があれば確認したうえで、プロジェクトの中身を「TOP」タブのみの
+            // 空の状態にリセットする。
+            //
+            menuNewProject.Name = "menuNewProject";
+            menuNewProject.Size = new Size(32, 19);
+            menuNewProject.Text = "新規作成";
+            //
             // menuSaveWork
             // 
             menuSaveWork.Name = "menuSaveWork";
@@ -658,6 +668,7 @@
         private Button btnFindReplace;
         private MenuStrip menuStrip1;
         private ToolStripMenuItem fileToolStripMenuItem;
+        private ToolStripMenuItem menuNewProject;
         private ToolStripMenuItem menuSaveWork;
         private ToolStripMenuItem menuOverwriteSave;
         private ToolStripMenuItem menuLoadWork;

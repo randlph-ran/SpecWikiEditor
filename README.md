@@ -15,6 +15,12 @@ Markdown で仕様書・Wiki を作成し、その場でプレビュー確認で
 | プレビュー表示 | [Microsoft.Web.WebView2](https://learn.microsoft.com/microsoft-edge/webview2/) 1.0.4022.49 (Chromium ベース) |
 | 削除処理 | `Microsoft.VisualBasic.FileIO.FileSystem`(ごみ箱への移動に使用) |
 
+## 出力サンプル
+
+このアプリで作成すると下記のようなサイトを出力可能になる
+
+https://github.com/randlph-ran/SpecWikiEditor/blob/main/Site/index.html
+
 ## データの保存先
 
 プロジェクトのルートフォルダの場所は、実行ファイルと同じフォルダにある `Default.cfg`(下記「設定・Default.cfg」参照)で決まる。既定では「実行ファイルと同じ階層 \ SpecWiki」。

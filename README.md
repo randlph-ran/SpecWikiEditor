@@ -19,7 +19,7 @@ Markdown で仕様書・Wiki を作成し、その場でプレビュー確認で
 
 このアプリで作成すると下記のようなサイトを出力可能になる
 
-https://github.com/randlph-ran/SpecWikiEditor/blob/main/Site/index.html
+https://drive.google.com/drive/folders/1fV5dixkiNxTQZvUU648OChw6NathyCIt?usp=sharing
 
 ## データの保存先
 

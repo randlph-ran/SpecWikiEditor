@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>1.概要</title>
+<style>
+body { margin:0; font-family: 'Yu Gothic UI', 'Meiryo', sans-serif; background:#ffffff; color:#000000; }
+/* 画面上部の帯。全タブ分のボタン(.tab-button)を横並びで表示する */
+.tabbar { background:#2d2d30; padding:8px 8px 0 8px; }
+.tab-button { margin-right:4px; padding:8px 14px; border:none; border-radius:4px 4px 0 0; cursor:pointer; background:#555; color:#fff; font-size:14px; }
+/* 現在選択中のタブのボタンだけ色を変えて強調する。JSのshowTab()がこのクラスを付け外しする */
+.tab-button.active { background:#007acc; }
+/* サイドバーと本文を横並びにする2カラムレイアウト */
+.layout { display:flex; align-items:flex-start; }
+.sidebar { width:220px; flex-shrink:0; border-right:1px solid #ddd; padding:12px; box-sizing:border-box; min-height:100vh; }
+/* 各タブ分のリンク一覧(div)。既定では全て非表示にし、.active が付いているものだけを表示する。
+   これにより「全タブ分のサイドバーを埋め込みつつ、見た目には1つしか出さない」を実現している */
+.sidebar-list { display:none; }
+.sidebar-list.active { display:block; }
+.sidebar-list a { display:block; padding:6px 4px; color:#333; text-decoration:none; border-radius:4px; }
+.sidebar-list a:hover { background:#f0f0f0; }
+/* 「今まさに見ているこのページ」へのリンクを、現在地としてハイライトする */
+.sidebar-list a.current { font-weight:bold; color:#007acc; background:#eaf4fc; }
+.content { flex:1; padding:24px; min-width:0; }
+/* 画像がコンテンツ幅からはみ出さないよう自動縮小する（プレビュー/単体HTML出力と同じ考え方） */
+.content img { max-width:100%; height:auto; }
+</style>
+</head>
+<body>
+<div class="tabbar"><button type="button" data-tab="TOP" class="tab-button active">TOP</button><button type="button" data-tab="SpecWikiEditor概要" class="tab-button">SpecWikiEditor概要</button><button type="button" data-tab="画面構成" class="tab-button">画面構成</button></div>
+<div class="layout">
+<div class="sidebar"><div class="sidebar-list active" data-tab="TOP"><a href="TOP/1.%E6%A6%82%E8%A6%81.html" class="current">1.概要</a></div><div class="sidebar-list" data-tab="SpecWikiEditor概要"><a href="SpecWikiEditor%E6%A6%82%E8%A6%81/1.%E6%A6%82%E8%A6%81.html" class="">1.概要</a><a href="SpecWikiEditor%E6%A6%82%E8%A6%81/2.%E4%BF%9D%E5%AD%98%E5%85%88.html" class="">2.保存先</a></div><div class="sidebar-list" data-tab="画面構成"><a href="%E7%94%BB%E9%9D%A2%E6%A7%8B%E6%88%90/1.%E6%A6%82%E8%A6%81.html" class="">1.概要</a><a href="%E7%94%BB%E9%9D%A2%E6%A7%8B%E6%88%90/2.%E3%82%BF%E3%83%96%28%E3%83%95%E3%82%A9%E3%83%AB%E3%83%80%29%E7%AE%A1%E7%90%86.html" class="">2.タブ(フォルダ)管理</a><a href="%E7%94%BB%E9%9D%A2%E6%A7%8B%E6%88%90/3.%E6%AE%B5%E8%90%BD.html" class="">3.段落</a><a href="%E7%94%BB%E9%9D%A2%E6%A7%8B%E6%88%90/4.%E7%B7%A8%E9%9B%86%E3%83%84%E3%83%BC%E3%83%AB%E3%83%90%E3%83%BC.html" class="">4.編集ツールバー</a><a href="%E7%94%BB%E9%9D%A2%E6%A7%8B%E6%88%90/5.%E3%83%97%E3%83%AC%E3%83%93%E3%83%A5%E3%83%BC.html" class="">5.プレビュー</a><a href="%E7%94%BB%E9%9D%A2%E6%A7%8B%E6%88%90/6.%E5%87%BA%E5%8A%9B%E3%80%81%E3%81%9D%E3%81%AE%E4%BB%96.html" class="">6.出力、その他</a></div></div>
+<div class="content"><h1 id="top">TOP</h1>
+<p>SpecWikiEditor仕様書</p>
+</div>
+</div>
+<script>
+// 指定したタブ名に対応するサイドバー・タブボタンだけを active にし、他は非表示/非アクティブにする
+function showTab(name) {
+  document.querySelectorAll('.sidebar-list').forEach(function (el) { el.classList.toggle('active', el.getAttribute('data-tab') === name); });
+  document.querySelectorAll('.tab-button').forEach(function (el) { el.classList.toggle('active', el.getAttribute('data-tab') === name); });
+}
+// 各タブボタンのクリックにshowTabを紐付ける（ページ遷移なしで即座にサイドバーが切り替わる）
+document.querySelectorAll('.tab-button').forEach(function (btn) {
+  btn.addEventListener('click', function () { showTab(btn.getAttribute('data-tab')); });
+});
+</script>
+</body>
+</html>

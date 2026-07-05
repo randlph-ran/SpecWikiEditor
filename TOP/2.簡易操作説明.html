@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>2.簡易操作説明</title>
+<style>
+body { margin:0; font-family: 'Yu Gothic UI', 'Meiryo', sans-serif; background:#ffffff; color:#000000; }
+/* 画面上部の帯。全タブ分のボタン(.tab-button)を横並びで表示する */
+.tabbar { background:#2d2d30; padding:8px 8px 0 8px; }
+.tab-button { margin-right:4px; padding:8px 14px; border:none; border-radius:4px 4px 0 0; cursor:pointer; background:#555; color:#fff; font-size:14px; }
+/* 現在選択中のタブのボタンだけ色を変えて強調する。JSのshowTab()がこのクラスを付け外しする */
+.tab-button.active { background:#007acc; }
+/* サイドバーと本文を横並びにする2カラムレイアウト */
+.layout { display:flex; align-items:flex-start; }
+.sidebar { width:220px; flex-shrink:0; border-right:1px solid #ddd; padding:12px; box-sizing:border-box; min-height:100vh; }
+/* 各タブ分のリンク一覧(div)。既定では全て非表示にし、.active が付いているものだけを表示する。
+   これにより「全タブ分のサイドバーを埋め込みつつ、見た目には1つしか出さない」を実現している */
+.sidebar-list { display:none; }
+.sidebar-list.active { display:block; }
+.sidebar-list a { display:block; padding:6px 4px; color:#333; text-decoration:none; border-radius:4px; }
+.sidebar-list a:hover { background:#f0f0f0; }
+/* 「今まさに見ているこのページ」へのリンクを、現在地としてハイライトする */
+.sidebar-list a.current { font-weight:bold; color:#007acc; background:#eaf4fc; }
+.content { flex:1; padding:24px; min-width:0; }
+/* 画像がコンテンツ幅からはみ出さないよう自動縮小する（プレビュー/単体HTML出力と同じ考え方） */
+.content img { max-width:100%; height:auto; }
+/* テーブルに罫線を付ける（プレビュー/単体HTML出力と同じ考え方） */
+.content table { border-collapse: collapse; }
+.content th, .content td { border: 1px solid #999; padding: 4px 8px; }
+.content th { background-color: #f0f0f0; }
+</style>
+</head>
+<body>
+<div class="tabbar"><button type="button" data-tab="TOP" class="tab-button active">TOP</button><button type="button" data-tab="SpecWikiEditor概要" class="tab-button">SpecWikiEditor概要</button><button type="button" data-tab="画面構成" class="tab-button">画面構成</button></div>
+<div class="layout">
+<div class="sidebar"><div class="sidebar-list active" data-tab="TOP"><a href="../TOP/1.%E6%A6%82%E8%A6%81.html" class="">1.概要</a><a href="../TOP/2.%E7%B0%A1%E6%98%93%E6%93%8D%E4%BD%9C%E8%AA%AC%E6%98%8E.html" class="current">2.簡易操作説明</a></div><div class="sidebar-list" data-tab="SpecWikiEditor概要"><a href="../SpecWikiEditor%E6%A6%82%E8%A6%81/1.%E6%A6%82%E8%A6%81.html" class="">1.概要</a><a href="../SpecWikiEditor%E6%A6%82%E8%A6%81/2.%E4%BF%9D%E5%AD%98%E5%85%88.html" class="">2.保存先</a></div><div class="sidebar-list" data-tab="画面構成"><a href="../%E7%94%BB%E9%9D%A2%E6%A7%8B%E6%88%90/1.%E6%A6%82%E8%A6%81.html" class="">1.概要</a><a href="../%E7%94%BB%E9%9D%A2%E6%A7%8B%E6%88%90/2.%E3%82%BF%E3%83%96%28%E3%83%95%E3%82%A9%E3%83%AB%E3%83%80%29%E7%AE%A1%E7%90%86.html" class="">2.タブ(フォルダ)管理</a><a href="../%E7%94%BB%E9%9D%A2%E6%A7%8B%E6%88%90/3.%E6%AE%B5%E8%90%BD.html" class="">3.段落</a><a href="../%E7%94%BB%E9%9D%A2%E6%A7%8B%E6%88%90/4.%E7%B7%A8%E9%9B%86%E3%83%84%E3%83%BC%E3%83%AB%E3%83%90%E3%83%BC.html" class="">4.編集ツールバー</a><a href="../%E7%94%BB%E9%9D%A2%E6%A7%8B%E6%88%90/5.%E3%83%97%E3%83%AC%E3%83%93%E3%83%A5%E3%83%BC.html" class="">5.プレビュー</a><a href="../%E7%94%BB%E9%9D%A2%E6%A7%8B%E6%88%90/6.%E5%87%BA%E5%8A%9B%E3%80%81%E3%81%9D%E3%81%AE%E4%BB%96.html" class="">6.出力、その他</a></div></div>
+<div class="content"><h1 id="section">簡易操作説明</h1>
+<p><img src="../assets/8876a831-f534-4857-9c87-d0df52447c5f.png" alt="画像" /></p>
+<h2 id="section-1">テキスト入力箇所</h2>
+<p>ここに入力した内容がウィンドウ右側のビュー画面にHTML形式になったものとして反映表示される。<br />
+mdと同様のタグを認識して表示されるため、既存のmdファイルを読み込んでもGitHub上で見たときと同様に表示される。<br />
+上部のボタン群は、文字サイズやテキスト表現の変更処理を行えるツールボックス。対応したい文字の近くでボタンを押せば設定可能。<br />
+画像のドロップで反映されるようになる。</p>
+<h2 id="section-2">段落とタブ</h2>
+<p>段落はウィンドウ左下に「＋」と「ー」、タブ表示エリアの右上に「＋」、タブの右に「×」があり、それぞれ追加と削除ができる</p>
+<p>タブはページのグループとして存在し、段落はそのグループ内のHTMLそのもの、として存在する</p>
+<h2 id="section-3">サイト出力</h2>
+<p>HP上での</p>
+<p>構成を作成して、index.htmlと関連フォルダを出力してブラウザ上でページ参照できるようにする<br />
+<a href="https://randlph-ran.github.io/SpecWikiEditor/">出力例</a></p>
+<h2 id="section-4">ファイルメニュー</h2>
+<table>
+<thead>
+<tr>
+<th>メニュー項目</th>
+<th>動作</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>新規作成</td>
+<td>未保存の変更があれば確認したうえで、プロジェクトルートの中身を「TOP」タブのみの空の状態にリセットする(下記「10. 起動時の挙動・多重起動の防止」の<code>ResetProjectToBlank</code>と同じ処理)</td>
+</tr>
+<tr>
+<td>作業内容のセーブ</td>
+<td>常に保存先を選ぶダイアログを表示し、プロジェクトルート全体(全タブ・全段落・<code>assets</code>)を1つの <code>.spc</code> ファイル(実体はZIP形式)にまとめて保存する。保存完了メッセージを表示する</td>
+</tr>
+<tr>
+<td>作業内容の上書き保存(Ctrl+S)</td>
+<td>既に保存・読み込み済みの <code>.spc</code> ファイルがあれば、ダイアログを出さずそこへ無言で上書き保存する。まだ保存先が無い場合のみ、保存先を選ぶダイアログを表示する。保存完了メッセージは表示しない。キーボードショートカット <code>Ctrl+S</code> からも同じ処理を呼び出せる</td>
+</tr>
+<tr>
+<td>作業内容のロード</td>
+<td>未保存の変更がある場合、<strong>先に</strong>「現在の作業内容に未保存の内容があります。このまま別ファイルをロードすると作業内容が失われますがよろしいですか?」を確認する(はい＝未保存のまま続行、いいえ＝保存先を選んで保存してから続行、キャンセル＝中止)。そのうえで読み込み元の <code>.spc</code> ファイルを選ぶダイアログを表示し、プロジェクトルートの内容を選択した <code>.spc</code> の内容で<strong>完全に置き換える</strong></td>
+</tr>
+<tr>
+<td>mdファイルのロード</td>
+<td>読み込み元の <code>.md</code> ファイルを選ぶダイアログを表示し、現在選択中のタブに、元ファイル名をそのまま段落名として新規段落を追加する(採番ルールは通常の段落追加と同じ)</td>
+</tr>
+<tr>
+<td>HTML出力</td>
+<td>右下の「出力」ボタンと同じ処理</td>
+</tr>
+<tr>
+<td>サイト出力</td>
+<td>全タブ・全段落をつないだ静的HTMLサイトを書き出す</td>
+</tr>
+<tr>
+<td>設定</td>
+<td><code>Default.cfg</code> の内容を編集するダイアログを開く</td>
+</tr>
+<tr>
+<td>終了</td>
+<td>ウィンドウを閉じる。未保存の変更がある場合は「作業内容が失われますがよろしいですか?」の確認ダイアログを表示する</td>
+</tr>
+</tbody>
+</table>
+<ul>
+<li><p>リスト・見出し・引用・チェックリストは Markdown 標準記法(<code>-</code> <code>#</code> <code>&gt;</code> など)を使うため、プレビューで正しく反映される。</p>
+</li>
+<li><p>下線・文字色・文字サイズは標準 Markdown にはない機能のため、HTML タグを直接 Markdown 内に埋め込む方式で実現している(WebView2 は HTML をそのまま解釈するため正しく表示されるが、他の Markdown ビューアでは正しく表示されない場合がある)。</p>
+</li>
+<li><p>表・チェックリスト・取消線などの拡張記法に対応するため、Markdig のパイプラインで <code>UseAdvancedExtensions()</code> を有効化している。</p>
+</li>
+<li><p>Editor側で選択している箇所近辺にツールボックスと同じ特殊文字が入っている場合は、それを打ち消すトグル処理となっている</p>
+<ul>
+<li>たとえば、「大項目」を押した際に「 # 」がカーソルの直前やテキストの選択範囲にあった場合は、これが消える。</li>
+</ul>
+</li>
+</ul>
+</div>
+</div>
+<script>
+// 指定したタブ名に対応するサイドバー・タブボタンだけを active にし、他は非表示/非アクティブにする
+function showTab(name) {
+  document.querySelectorAll('.sidebar-list').forEach(function (el) { el.classList.toggle('active', el.getAttribute('data-tab') === name); });
+  document.querySelectorAll('.tab-button').forEach(function (el) { el.classList.toggle('active', el.getAttribute('data-tab') === name); });
+}
+// 各タブボタンのクリックにshowTabを紐付ける（ページ遷移なしで即座にサイドバーが切り替わる）
+document.querySelectorAll('.tab-button').forEach(function (btn) {
+  btn.addEventListener('click', function () { showTab(btn.getAttribute('data-tab')); });
+});
+</script>
+</body>
+</html>

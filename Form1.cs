@@ -6,6 +6,7 @@ using System.IO;
 using System.IO.Compression;
 using System.Net;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Windows.Forms;
 using Markdig;
 
@@ -61,8 +62,14 @@ namespace SpecWikiEditor
         // プレビュー・出力HTMLの両方で使う共通CSS。
         // ・画像がプレビュー/出力先の表示幅に収まるよう自動縮小させる（元の画像ファイルには一切手を加えない）
         // ・背景色/文字色を明示指定し、閲覧環境のダークモード設定による自動反転（黒背景に黒文字等）を防ぐ
+        // ・テーブルに罫線を付ける（Markdigの出力自体には罫線用のスタイルが含まれておらず、
+        //   GitHub上ではGitHub側のCSSで罫線が付いて見えるだけなので、こちら側でも明示的に指定する）
         private const string CommonPreviewCss =
-            "html, body { background-color: #ffffff; color: #000000; } img { max-width: 100%; height: auto; }";
+            "html, body { background-color: #ffffff; color: #000000; } " +
+            "img { max-width: 100%; height: auto; } " +
+            "table { border-collapse: collapse; } " +
+            "th, td { border: 1px solid #999; padding: 4px 8px; } " +
+            "th { background-color: #f0f0f0; }";
 
         // 「サイト出力」で生成する各ページ共通のCSS。BuildSitePageHtmlが埋め込むHTML構造
         // （.tabbar / .layout > .sidebar + .content）にそのまま対応させている。
@@ -89,6 +96,10 @@ body { margin:0; font-family: 'Yu Gothic UI', 'Meiryo', sans-serif; background:#
 .content { flex:1; padding:24px; min-width:0; }
 /* 画像がコンテンツ幅からはみ出さないよう自動縮小する（プレビュー/単体HTML出力と同じ考え方） */
 .content img { max-width:100%; height:auto; }
+/* テーブルに罫線を付ける（プレビュー/単体HTML出力と同じ考え方） */
+.content table { border-collapse: collapse; }
+.content th, .content td { border: 1px solid #999; padding: 4px 8px; }
+.content th { background-color: #f0f0f0; }
 ";
 
         // タブに描画する「×」（閉じる）ボタンの一辺のサイズ(px)
@@ -160,13 +171,18 @@ body { margin:0; font-family: 'Yu Gothic UI', 'Meiryo', sans-serif; background:#
                 splitContainer1.SplitterMoved += (s, e) => AdjustEditorToolbarHeight();
                 splitContainer2.SplitterMoved += (s, e) => AdjustEditorToolbarHeight();
 
-                // 編集ツールバーの各ボタンにMarkdown/HTML挿入処理を割り当てる
-                btnHeading1.Click += (s, e) => InsertPrefixOnSelectedLines(_ => "# ");
-                btnHeading2.Click += (s, e) => InsertPrefixOnSelectedLines(_ => "## ");
-                btnBulletList.Click += (s, e) => InsertPrefixOnSelectedLines(_ => "- ");
-                btnNumberedList.Click += (s, e) => InsertPrefixOnSelectedLines(i => $"{i + 1}. ");
-                btnCheckList.Click += (s, e) => InsertPrefixOnSelectedLines(_ => "- [ ] ");
-                btnQuote.Click += (s, e) => InsertPrefixOnSelectedLines(_ => "> ");
+                // 編集ツールバーの各ボタンにMarkdown/HTML挿入処理を割り当てる。
+                // 行頭に記号を付ける系のボタンは、既に同じ書式が付いている行であれば
+                // 逆に取り除く（トグル動作）。第2引数の正規表現は「既にこの書式が付いている」
+                // ことを判定するためのもの。
+                btnHeading1.Click += (s, e) => InsertPrefixOnSelectedLines(_ => "# ", new Regex(@"^#\s"));
+                btnHeading2.Click += (s, e) => InsertPrefixOnSelectedLines(_ => "## ", new Regex(@"^##\s"));
+                // 「- 」で始まる箇条書きは、チェックリスト（"- [ ] "）と先頭が同じになるため、
+                // 誤ってチェックリスト行を箇条書きと誤認しないよう "- [" の形は除外する
+                btnBulletList.Click += (s, e) => InsertPrefixOnSelectedLines(_ => "- ", new Regex(@"^-\s(?!\[)"));
+                btnNumberedList.Click += (s, e) => InsertPrefixOnSelectedLines(i => $"{i + 1}. ", new Regex(@"^\d+\.\s"));
+                btnCheckList.Click += (s, e) => InsertPrefixOnSelectedLines(_ => "- [ ] ", new Regex(@"^-\s\[.\]\s"));
+                btnQuote.Click += (s, e) => InsertPrefixOnSelectedLines(_ => "> ", new Regex(@"^>\s"));
                 btnHr.Click += (s, e) => InsertAtCursor("\r\n\r\n---\r\n\r\n");
                 btnBold.Click += (s, e) => WrapSelection("**", "**", "太字");
                 btnUnderline.Click += (s, e) => WrapSelection("<u>", "</u>", "下線");
@@ -539,10 +555,14 @@ body { margin:0; font-family: 'Yu Gothic UI', 'Meiryo', sans-serif; background:#
             }
         }
 
-        // 現在の選択範囲を含む行（複数行選択時はすべての行）の先頭に、prefixGenerator が返す文字列を挿入する。
+        // 現在の選択範囲を含む行（複数行選択時はすべての行）の先頭に、prefixGenerator が返す文字列を
+        // 追加する。ただし、その行の先頭が既に existingPattern にマッチする場合（＝既に同じ書式が
+        // 付いている場合）は、追加する代わりにマッチした部分を取り除く（トグル動作）。
         // 見出し・箇条書き・番号付きリスト・チェックリスト・引用など、行頭に記号を付ける系のボタンで共通利用する。
-        // prefixGenerator の引数には「選択範囲内での行番号(0始まり)」が渡され、番号付きリストの連番などに使う。
-        private void InsertPrefixOnSelectedLines(Func<int, string> prefixGenerator)
+        // prefixGenerator : 「選択範囲内での行番号(0始まり)」を受け取り、追加すべき先頭文字列を返す
+        //   （番号付きリストの連番などに使う）。
+        // existingPattern : その行の先頭が「既にこの書式である」と判定するための正規表現。
+        private void InsertPrefixOnSelectedLines(Func<int, string> prefixGenerator, Regex existingPattern)
         {
             string text = txtEditor.Text;
             int selStart = txtEditor.SelectionStart;
@@ -557,8 +577,20 @@ body { margin:0; font-family: 'Yu Gothic UI', 'Meiryo', sans-serif; background:#
             StringBuilder sb = new StringBuilder();
             for (int i = 0; i < lines.Length; i++)
             {
-                sb.Append(prefixGenerator(i));
-                sb.Append(lines[i].TrimEnd('\r'));
+                string line = lines[i].TrimEnd('\r');
+                Match existingMatch = existingPattern.Match(line);
+
+                if (existingMatch.Success && existingMatch.Index == 0)
+                {
+                    // 既に同じ書式が行頭に付いているので、その部分を取り除く（トグルオフ）
+                    sb.Append(line.Substring(existingMatch.Length));
+                }
+                else
+                {
+                    // まだ付いていないので追加する（トグルオン）
+                    sb.Append(prefixGenerator(i));
+                    sb.Append(line);
+                }
                 if (i < lines.Length - 1) sb.Append('\n');
             }
 
@@ -574,15 +606,55 @@ body { margin:0; font-family: 'Yu Gothic UI', 'Meiryo', sans-serif; background:#
         // 選択範囲を prefix と suffix で囲む。未選択の場合は placeholder を挿入し、その部分を選択状態にする
         // （続けて文字を入力すればそのまま置き換えられるようにするため）。
         // 太字・下線・取消線・インラインコード・コードブロック・文字色・文字サイズの各ボタンで共通利用する。
+        //
+        // トグル動作: 選択範囲が既にこの書式で囲まれている場合は、追加する代わりに囲みを取り除く。
+        // 「囲まれている」は次の2パターンを判定する。
+        //   (1) 選択範囲そのものが prefix...suffix の形になっている（マーカーごと選択した場合）
+        //   (2) 選択範囲の直前・直後にちょうど prefix・suffix が隣接している（中身だけ選択した場合）
         private void WrapSelection(string prefix, string suffix, string placeholder)
         {
             int start = txtEditor.SelectionStart;
-            string selected = txtEditor.SelectionLength > 0 ? txtEditor.SelectedText : placeholder;
+            int length = txtEditor.SelectionLength;
 
-            txtEditor.SelectedText = prefix + selected + suffix;
+            if (length > 0)
+            {
+                string selected = txtEditor.SelectedText;
+
+                // パターン(1): 選択範囲そのものが "prefix...suffix" になっている
+                if (selected.Length >= prefix.Length + suffix.Length &&
+                    selected.StartsWith(prefix, StringComparison.Ordinal) &&
+                    selected.EndsWith(suffix, StringComparison.Ordinal))
+                {
+                    string unwrapped = selected.Substring(prefix.Length, selected.Length - prefix.Length - suffix.Length);
+                    txtEditor.SelectedText = unwrapped;
+                    txtEditor.SelectionStart = start;
+                    txtEditor.SelectionLength = unwrapped.Length;
+                    txtEditor.Focus();
+                    return;
+                }
+
+                // パターン(2): 選択範囲の直前・直後にちょうど prefix・suffix が隣接している
+                string fullText = txtEditor.Text;
+                int prefixStart = start - prefix.Length;
+                int suffixStart = start + length;
+                if (prefixStart >= 0 && suffixStart + suffix.Length <= fullText.Length &&
+                    fullText.Substring(prefixStart, prefix.Length) == prefix &&
+                    fullText.Substring(suffixStart, suffix.Length) == suffix)
+                {
+                    txtEditor.Text = fullText.Substring(0, prefixStart) + selected + fullText.Substring(suffixStart + suffix.Length);
+                    txtEditor.SelectionStart = prefixStart;
+                    txtEditor.SelectionLength = selected.Length;
+                    txtEditor.Focus();
+                    return;
+                }
+            }
+
+            // どちらのパターンにも当てはまらない場合は、通常どおり囲む（トグルオン）
+            string toWrap = length > 0 ? txtEditor.SelectedText : placeholder;
+            txtEditor.SelectedText = prefix + toWrap + suffix;
 
             txtEditor.SelectionStart = start + prefix.Length;
-            txtEditor.SelectionLength = selected.Length;
+            txtEditor.SelectionLength = toWrap.Length;
             txtEditor.Focus();
         }
 

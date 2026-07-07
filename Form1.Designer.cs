@@ -74,6 +74,7 @@
             tabPage2 = new TabPage();
             webView2Preview = new Microsoft.Web.WebView2.WinForms.WebView2();
             pnlBottomBar = new Panel();
+            btnExportSite = new Button();
             btnExport = new Button();
             toolTip1 = new ToolTip(components);
             menuStrip1.SuspendLayout();
@@ -575,7 +576,8 @@
             webView2Preview.ZoomFactor = 1D;
             // 
             // pnlBottomBar
-            // 
+            //
+            pnlBottomBar.Controls.Add(btnExportSite);
             pnlBottomBar.Controls.Add(btnExport);
             pnlBottomBar.Dock = DockStyle.Fill;
             pnlBottomBar.Location = new Point(0, 414);
@@ -583,15 +585,30 @@
             pnlBottomBar.Name = "pnlBottomBar";
             pnlBottomBar.Size = new Size(477, 36);
             pnlBottomBar.TabIndex = 3;
-            // 
+            //
+            // btnExportSite
+            // クリックすると Form1.ExportSiteToFolder() が呼ばれる（ファイルメニューの
+            // 「サイト出力」と同じ処理）。「HTML出力」ボタンの左隣に配置する。
+            //
+            btnExportSite.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            btnExportSite.Location = new Point(285, 4);
+            btnExportSite.Name = "btnExportSite";
+            btnExportSite.Size = new Size(90, 28);
+            btnExportSite.TabIndex = 1;
+            btnExportSite.Text = "サイト出力";
+            btnExportSite.UseVisualStyleBackColor = true;
+            //
             // btnExport
-            // 
+            // クリックすると Form1.ExportCurrentFileToHtml() が呼ばれる（ファイルメニューの
+            // 「HTML出力」と同じ処理）。以前は「出力」という名称だったが、「サイト出力」ボタンを
+            // 新設したことで紛らわしくなるため「HTML出力」に変更している。
+            //
             btnExport.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-            btnExport.Location = new Point(226, 4);
+            btnExport.Location = new Point(381, 4);
             btnExport.Name = "btnExport";
-            btnExport.Size = new Size(86, 28);
+            btnExport.Size = new Size(90, 28);
             btnExport.TabIndex = 0;
-            btnExport.Text = "出力";
+            btnExport.Text = "HTML出力";
             btnExport.UseVisualStyleBackColor = true;
             // 
             // Form1
@@ -644,6 +661,7 @@
         private Button btnAddTab;
         private Panel pnlBottomBar;
         private Button btnExport;
+        private Button btnExportSite;
         private Panel pnlSidebarBottom;
         private Button btnRemoveFile;
         private Button btnAddFile;

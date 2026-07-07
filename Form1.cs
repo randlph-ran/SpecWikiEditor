@@ -153,9 +153,10 @@ body { margin:0; font-family: 'Yu Gothic UI', 'Meiryo', sans-serif; background:#
                 txtEditor.DragEnter += TxtEditor_DragEnter;
                 txtEditor.DragDrop += TxtEditor_DragDrop;
 
-                // 「+」ボタンで新規タブ追加、「出力」ボタンでHTML出力を行う
+                // 「+」ボタンで新規タブ追加、「HTML出力」「サイト出力」ボタンでそれぞれの出力を行う
                 btnAddTab.Click += BtnAddTab_Click;
                 btnExport.Click += BtnExport_Click;
+                btnExportSite.Click += (s, e) => ExportSiteToFolder();
 
                 // タブに「×」を自前描画し、クリックされたらタブを閉じる（削除）処理を行う
                 tabControlMain.DrawItem += TabControlMain_DrawItem;
@@ -1205,9 +1206,18 @@ body { margin:0; font-family: 'Yu Gothic UI', 'Meiryo', sans-serif; background:#
 
                 // タブボタン: data-tab属性にタブ名を持たせておき、JS側(showTab)でこの値を見て
                 // 対応するサイドバー(下記sidebar-list)を表示/非表示切り替える。
-                // 自分自身が属するタブのボタンには、最初から"active"クラス（見た目の強調）を付けておく
+                // 自分自身が属するタブのボタンには、最初から"active"クラス（見た目の強調）を付けておく。
+                //
+                // data-first-page には、このタブの最初の段落ページへの相対リンクを持たせておく。
+                // タブボタンをクリックした際、サイドバーの表示切り替えだけでなく、右側の本文も
+                // そのタブの最初の段落ページに実際に遷移させる（サイドバーだけ切り替わって本文が
+                // 変わらない、というちぐはぐな動きを防ぐため）。段落が1つも無いタブの場合は
+                // 遷移先が無いため、data-first-pageは空にしておく（JS側でサイドバー切替のみ行う）。
+                string firstPageHref = tab.Paragraphs.Count > 0
+                    ? $"{relativePrefix}{Uri.EscapeDataString(tab.TabName)}/{Uri.EscapeDataString(tab.Paragraphs[0])}.html"
+                    : "";
                 tabBarHtml.Append(
-                    $"<button type=\"button\" data-tab=\"{tabNameEncoded}\" class=\"tab-button{(isCurrentTab ? " active" : "")}\">{tabNameEncoded}</button>");
+                    $"<button type=\"button\" data-tab=\"{tabNameEncoded}\" data-first-page=\"{firstPageHref}\" class=\"tab-button{(isCurrentTab ? " active" : "")}\">{tabNameEncoded}</button>");
 
                 // サイドバー: タブごとに1つの<div>(data-tab属性で紐付け)を作り、CSS側で
                 // ".sidebar-list"は非表示、".sidebar-list.active"だけ表示、というルールにしている。
@@ -1232,11 +1242,10 @@ body { margin:0; font-family: 'Yu Gothic UI', 'Meiryo', sans-serif; background:#
             // 生成するHTMLドキュメント本体。
             // ・タブバー(tabBarHtml)とサイドバー(sidebarHtml)は上のループで既に組み立て済みで、
             //   「今どのタブを表示すべきか」もサーバー側(C#)で決めて active クラスを付与済みのため、
-            //   ページを開いた瞬間に正しい見た目になる（JSはあくまで「ユーザーがタブボタンを
-            //   クリックした後の切り替え」だけを担当する）。
-            // ・showTab関数は、指定されたタブ名に一致する要素だけ"active"クラスを付け、
-            //   それ以外からは外す、という単純なトグル処理。サイドバー側(.sidebar-list)と
-            //   タブボタン側(.tab-button)の両方に同じロジックを適用している。
+            //   ページを開いた瞬間に正しい見た目になる。
+            // ・タブボタンをクリックした際は、そのタブの最初の段落ページへ実際にページ遷移する。
+            //   これにより、サイドバーの表示切り替えだけでなく、右側の本文も正しく切り替わる
+            //   （段落が1つも無いタブの場合のみ、遷移先が無いためサイドバー表示の切替だけを行う）。
             return $@"<!DOCTYPE html>
 <html>
 <head>
@@ -1252,13 +1261,22 @@ body { margin:0; font-family: 'Yu Gothic UI', 'Meiryo', sans-serif; background:#
 </div>
 <script>
 // 指定したタブ名に対応するサイドバー・タブボタンだけを active にし、他は非表示/非アクティブにする
+// （段落が1つも無いタブをクリックした場合の、サイドバー表示切り替えのみのフォールバック用）
 function showTab(name) {{
   document.querySelectorAll('.sidebar-list').forEach(function (el) {{ el.classList.toggle('active', el.getAttribute('data-tab') === name); }});
   document.querySelectorAll('.tab-button').forEach(function (el) {{ el.classList.toggle('active', el.getAttribute('data-tab') === name); }});
 }}
-// 各タブボタンのクリックにshowTabを紐付ける（ページ遷移なしで即座にサイドバーが切り替わる）
+// 各タブボタンのクリックで、そのタブの最初の段落ページへ実際に遷移する。
+// これにより、サイドバーの表示だけでなく右側の本文も正しく切り替わる。
 document.querySelectorAll('.tab-button').forEach(function (btn) {{
-  btn.addEventListener('click', function () {{ showTab(btn.getAttribute('data-tab')); }});
+  btn.addEventListener('click', function () {{
+    var firstPage = btn.getAttribute('data-first-page');
+    if (firstPage) {{
+      window.location.href = firstPage;
+    }} else {{
+      showTab(btn.getAttribute('data-tab'));
+    }}
+  }});
 }});
 </script>
 </body>

@@ -26,6 +26,23 @@ namespace SpecWikiEditor
         // 現在編集中のMarkdownファイルのフルパス
         private string currentFilePath = "";
 
+        // 現在編集中の段落(ページ)に設定されている、メインページの背景色("#rrggbb")。
+        // 未設定の場合は null。.mdファイルの先頭に埋め込む隠しマーカー(下記
+        // ParagraphBgColorMarkerPattern)として保存され、LstSidebar_SelectedIndexChangedで
+        // 読み込み時に抽出し、SaveCurrentFileで保存時に書き戻す。
+        private string currentParagraphBgColor = null;
+
+        // .mdファイルの先頭に埋め込む、メインページ背景色マーカーの正規表現。
+        // 例: "<!-- bgcolor:#ffcc00 -->" のような1行。エディタ上には表示させず、
+        // ファイルの読み書き時にのみ透過的に付け外しする「隠しマーカー」として扱う。
+        private static readonly Regex ParagraphBgColorMarkerPattern =
+            new Regex(@"^<!--\s*bgcolor:\s*(#[0-9A-Fa-f]{6})\s*-->\r?\n?");
+
+        // タブ(フォルダ)ごとの設定を保存する小さな設定ファイルの名前。
+        // 現状は「サイドメニューの背景色」のみを保持する。"*.md" に一致しないため、
+        // 段落一覧の列挙(Directory.GetFiles(folder, "*.md"))には影響しない。
+        private const string TabMetaFileName = ".tabmeta.cfg";
+
         // Default.cfg（保存先パス・フォルダ名・起動時最大化）の内容を保持する
         private AppConfig appConfig;
 
@@ -84,13 +101,17 @@ body { margin:0; font-family: 'Yu Gothic UI', 'Meiryo', sans-serif; background:#
 .tab-button.active { background:#007acc; }
 /* サイドバーと本文を横並びにする2カラムレイアウト */
 .layout { display:flex; align-items:flex-start; }
-.sidebar { width:220px; flex-shrink:0; border-right:1px solid #ddd; padding:12px; box-sizing:border-box; min-height:100vh; }
+.sidebar { width:220px; flex-shrink:0; border-right:1px solid #ddd; box-sizing:border-box; min-height:100vh; }
 /* 各タブ分のリンク一覧(div)。既定では全て非表示にし、.active が付いているものだけを表示する。
-   これにより「全タブ分のサイドバーを埋め込みつつ、見た目には1つしか出さない」を実現している */
-.sidebar-list { display:none; }
-.sidebar-list.active { display:block; }
-.sidebar-list a { display:block; padding:6px 4px; color:#333; text-decoration:none; border-radius:4px; }
-.sidebar-list a:hover { background:#f0f0f0; }
+   これにより「全タブ分のサイドバーを埋め込みつつ、見た目には1つしか出さない」を実現している。
+   paddingとmin-heightをこちら側に持たせることで、タブごとの背景色(インラインスタイル)が
+   サイドバー全体を隙間なく塗りつぶすようにしている */
+.sidebar-list { display:none; padding:12px; box-sizing:border-box; color:#333; }
+.sidebar-list.active { display:block; min-height:100vh; }
+/* リンクの文字色は親(.sidebar-list)の色を継承する。タブごとのインラインスタイルで
+   color を指定した場合、それがそのままリンクの文字色にも反映されるようにするため */
+.sidebar-list a { display:block; padding:6px 4px; color:inherit; text-decoration:none; border-radius:4px; }
+.sidebar-list a:hover { background:rgba(128,128,128,0.15); }
 /* 「今まさに見ているこのページ」へのリンクを、現在地としてハイライトする */
 .sidebar-list a.current { font-weight:bold; color:#007acc; background:#eaf4fc; }
 .content { flex:1; padding:24px; min-width:0; }
@@ -194,6 +215,19 @@ body { margin:0; font-family: 'Yu Gothic UI', 'Meiryo', sans-serif; background:#
                 btnTable.Click += (s, e) => InsertAtCursor(
                     "\r\n\r\n| 見出し1 | 見出し2 |\r\n| --- | --- |\r\n| セル1 | セル2 |\r\n\r\n");
                 btnTextColor.Click += (s, e) => InsertTextColor();
+
+                // 「サイドメニューBG色」：左クリックで現在のタブに背景色を設定、右クリックでリセットする
+                btnSidebarBgColor.Click += (s, e) => SetTabSidebarBgColorInteractive();
+                btnSidebarBgColor.MouseUp += (s, e) => { if (e.Button == MouseButtons.Right) ResetTabSidebarBgColor(); };
+
+                // 「サイドメニュー文字色」：左クリックで現在のタブに文字色を設定、右クリックでリセットする
+                btnSidebarTextColor.Click += (s, e) => SetTabSidebarTextColorInteractive();
+                btnSidebarTextColor.MouseUp += (s, e) => { if (e.Button == MouseButtons.Right) ResetTabSidebarTextColor(); };
+
+                // 「メインページBG色」：左クリックで現在の段落に背景色を設定、右クリックでリセットする
+                btnMainBgColor.Click += (s, e) => SetParagraphMainBgColorInteractive();
+                btnMainBgColor.MouseUp += (s, e) => { if (e.Button == MouseButtons.Right) ResetParagraphMainBgColor(); };
+
                 btnFindReplace.Click += (s, e) => new FindReplaceDialog(txtEditor).Show(this);
 
                 // 文字サイズドロップダウンの選択肢を用意し、選択されたら選択範囲をそのサイズで囲む
@@ -459,6 +493,9 @@ body { margin:0; font-family: 'Yu Gothic UI', 'Meiryo', sans-serif; background:#
             // タブ切替に伴い、タブページ内のリネーム欄の表示も最新の状態に更新する
             RefreshRenameBoxes();
 
+            // タブ切替に伴い、サイドバー(lstSidebar)の背景色をこのタブの設定色に更新する
+            ApplyCurrentTabSidebarColor();
+
             // TabControlの標準仕様上、タブをクリックで切り替えるとタブページ内の最初のコントロール
             // （リネーム欄）へ自動的にフォーカスが移ってしまうため、明示的にエディタへフォーカスを戻す
             txtEditor.Focus();
@@ -470,10 +507,23 @@ body { margin:0; font-family: 'Yu Gothic UI', 'Meiryo', sans-serif; background:#
             if (lstSidebar.SelectedItem == null) return;
             SaveCurrentFile();
             currentFilePath = Path.Combine(tabControlMain.SelectedTab.Tag.ToString(), lstSidebar.SelectedItem.ToString() + ".md");
-            if (File.Exists(currentFilePath)) txtEditor.Text = File.ReadAllText(currentFilePath);
+            if (File.Exists(currentFilePath))
+            {
+                // 先頭の背景色マーカーを抽出し、エディタには残りの本文だけを表示する
+                string rawContent = File.ReadAllText(currentFilePath);
+                currentParagraphBgColor = ExtractParagraphBgColor(rawContent, out string remainingContent);
+                txtEditor.Text = remainingContent;
+            }
+            else
+            {
+                currentParagraphBgColor = null;
+            }
 
             // 段落の選択に伴い、リネーム欄の「段落名称」表示も最新の状態に更新する
             RefreshRenameBoxes();
+
+            // 段落切替に伴い、プレビューの背景色もこの段落の設定色に更新する
+            UpdatePreview();
 
             // 段落切替時も、確実にエディタへフォーカスを戻しておく
             txtEditor.Focus();
@@ -481,8 +531,127 @@ body { margin:0; font-family: 'Yu Gothic UI', 'Meiryo', sans-serif; background:#
 
         private void SaveCurrentFile()
         {
-            // currentFilePath が設定されていればテキストボックスの内容をファイルに書き込む
-            if (!string.IsNullOrEmpty(currentFilePath)) File.WriteAllText(currentFilePath, txtEditor.Text);
+            // currentFilePath が設定されていればテキストボックスの内容をファイルに書き込む。
+            // メインページ背景色が設定されている場合は、先頭に隠しマーカーを付けて書き込む。
+            if (!string.IsNullOrEmpty(currentFilePath))
+                File.WriteAllText(currentFilePath, BuildParagraphContentWithBgMarker(currentParagraphBgColor, txtEditor.Text));
+        }
+
+        // .mdファイルの生の内容から、先頭の背景色マーカー(<!-- bgcolor:#rrggbb -->)を検出して取り除く。
+        // マーカーが見つかった場合はその色("#rrggbb")を返し、remainingContentにはマーカーを除いた
+        // 本文を格納する。見つからなければ null を返し、remainingContentは元の内容のままにする。
+        private string ExtractParagraphBgColor(string rawContent, out string remainingContent)
+        {
+            Match match = ParagraphBgColorMarkerPattern.Match(rawContent ?? "");
+            if (match.Success)
+            {
+                remainingContent = rawContent.Substring(match.Length);
+                return match.Groups[1].Value;
+            }
+            remainingContent = rawContent;
+            return null;
+        }
+
+        // 本文の先頭に、背景色マーカーを付け加える（bgColorがnullの場合は本文をそのまま返す）。
+        // ExtractParagraphBgColorの逆の処理で、ファイル保存時に対で使う。
+        private string BuildParagraphContentWithBgMarker(string bgColor, string content)
+        {
+            return string.IsNullOrEmpty(bgColor) ? content : $"<!-- bgcolor:{bgColor} -->\r\n{content}";
+        }
+
+        // タブフォルダの .tabmeta.cfg から、指定したキーの値を読み取る（無ければnull）。
+        // SidebarBgColor・SidebarTextColor など、複数の設定項目を同じファイル形式(Key=Value)で
+        // 扱うための汎用処理。
+        private string GetTabMetaValue(string tabFolder, string key)
+        {
+            if (string.IsNullOrEmpty(tabFolder)) return null;
+            string metaPath = Path.Combine(tabFolder, TabMetaFileName);
+            if (!File.Exists(metaPath)) return null;
+
+            foreach (string line in File.ReadAllLines(metaPath))
+            {
+                string trimmed = line.Trim();
+                if (trimmed.StartsWith(key + "=", StringComparison.OrdinalIgnoreCase))
+                    return trimmed.Substring(key.Length + 1).Trim();
+            }
+            return null;
+        }
+
+        // タブフォルダの .tabmeta.cfg に、指定したキーの値を書き込む（valueがnull/空ならそのキーだけ削除する）。
+        // 複数キーを1つのファイルにまとめて保持するため、既存の内容を読み込んでから該当キーだけ
+        // 更新し、全体を書き直す。全キーが無くなった場合は設定ファイル自体を削除する。
+        private void SetTabMetaValue(string tabFolder, string key, string value)
+        {
+            if (string.IsNullOrEmpty(tabFolder)) return;
+            string metaPath = Path.Combine(tabFolder, TabMetaFileName);
+
+            var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            if (File.Exists(metaPath))
+            {
+                foreach (string line in File.ReadAllLines(metaPath))
+                {
+                    string trimmed = line.Trim();
+                    int sep = trimmed.IndexOf('=');
+                    if (sep <= 0) continue;
+                    values[trimmed.Substring(0, sep)] = trimmed.Substring(sep + 1);
+                }
+            }
+
+            if (string.IsNullOrEmpty(value)) values.Remove(key);
+            else values[key] = value;
+
+            if (values.Count == 0)
+            {
+                if (File.Exists(metaPath)) File.Delete(metaPath);
+                return;
+            }
+
+            StringBuilder sb = new StringBuilder();
+            foreach (var pair in values) sb.Append($"{pair.Key}={pair.Value}\r\n");
+            File.WriteAllText(metaPath, sb.ToString());
+        }
+
+        // 指定したタブフォルダに設定されている、サイドメニュー背景色を取得する（未設定ならnull）
+        private string GetTabSidebarBgColor(string tabFolder) => GetTabMetaValue(tabFolder, "SidebarBgColor");
+
+        // 指定したタブフォルダに、サイドメニュー背景色を設定する。
+        // colorHexがnull/空の場合は設定を削除し、「未設定」の状態に戻す。
+        private void SetTabSidebarBgColor(string tabFolder, string colorHex) => SetTabMetaValue(tabFolder, "SidebarBgColor", colorHex);
+
+        // 指定したタブフォルダに設定されている、サイドメニュー文字色を取得する（未設定ならnull）
+        private string GetTabSidebarTextColor(string tabFolder) => GetTabMetaValue(tabFolder, "SidebarTextColor");
+
+        // 指定したタブフォルダに、サイドメニュー文字色を設定する。
+        // colorHexがnull/空の場合は設定を削除し、「未設定」の状態に戻す。
+        private void SetTabSidebarTextColor(string tabFolder, string colorHex) => SetTabMetaValue(tabFolder, "SidebarTextColor", colorHex);
+
+        // 現在選択中のタブに設定されているサイドメニュー背景色・文字色を、実際にlstSidebarへ反映する。
+        // 未設定の場合はそれぞれ既定の色(SystemColors.Window / SystemColors.WindowText)に戻す。
+        // 背景色によっては文字が見えなくなることがあるため、文字色も個別に設定できるようにしている。
+        private void ApplyCurrentTabSidebarColor()
+        {
+            string tabFolder = tabControlMain.SelectedTab?.Tag?.ToString();
+
+            string bgColorHex = GetTabSidebarBgColor(tabFolder);
+            try
+            {
+                lstSidebar.BackColor = string.IsNullOrEmpty(bgColorHex) ? SystemColors.Window : ColorTranslator.FromHtml(bgColorHex);
+            }
+            catch
+            {
+                // 設定ファイルの内容が壊れていた場合は既定色にフォールバックする
+                lstSidebar.BackColor = SystemColors.Window;
+            }
+
+            string textColorHex = GetTabSidebarTextColor(tabFolder);
+            try
+            {
+                lstSidebar.ForeColor = string.IsNullOrEmpty(textColorHex) ? SystemColors.WindowText : ColorTranslator.FromHtml(textColorHex);
+            }
+            catch
+            {
+                lstSidebar.ForeColor = SystemColors.WindowText;
+            }
         }
 
         // タブ名・段落名・ファイル名として入力された文字列から、前後の空白とファイル名に使えない文字を取り除く。
@@ -507,17 +676,19 @@ body { margin:0; font-family: 'Yu Gothic UI', 'Meiryo', sans-serif; background:#
             // WebView2 のコアが初期化されていなければ何もしない
             if (webView2Preview.CoreWebView2 == null) return;
 
-            // プレビューでは画像を仮想ホスト名（wiki-assets）経由で参照させる
-            string fullHtml = BuildHtmlDocument(txtEditor.Text, "https://wiki-assets");
+            // プレビューでは画像を仮想ホスト名（wiki-assets）経由で参照させ、
+            // 背景色は現在の段落に設定されているメインページ背景色を反映する
+            string fullHtml = BuildHtmlDocument(txtEditor.Text, "https://wiki-assets", currentParagraphBgColor);
             webView2Preview.CoreWebView2.NavigateToString(fullHtml);
         }
 
         // Markdown文字列を、プレビュー表示と出力(出力ボタン)の両方で共有するHTMLドキュメントに変換する。
         // imageBaseUrl : 画像参照の解決先。プレビュー時は仮想ホストURL("https://wiki-assets")、
         //                出力時は出力先フォルダからの相対パス("assets")などを渡す。
+        // bgColor : このページの背景色("#rrggbb")。null/空の場合はCommonPreviewCssの既定色(白)のまま。
         // 今後CSSやHTMLテンプレートに手を加えたくなった場合も、この1箇所を変更するだけで
         // プレビュー・出力の両方に反映される（拡張性を考慮した共通化）。
-        private string BuildHtmlDocument(string markdownText, string imageBaseUrl)
+        private string BuildHtmlDocument(string markdownText, string imageBaseUrl, string bgColor = null)
         {
             string htmlBody = Markdown.ToHtml(markdownText, markdownPipeline);
             // assetsDir のパス区切りをURL向けに変換してから、いったん仮想ホスト表記に統一する
@@ -527,8 +698,12 @@ body { margin:0; font-family: 'Yu Gothic UI', 'Meiryo', sans-serif; background:#
             if (imageBaseUrl != "https://wiki-assets")
                 htmlBody = htmlBody.Replace("https://wiki-assets", imageBaseUrl);
 
+            // ページ個別の背景色が設定されていれば、bodyタグへのインラインスタイルとして適用する
+            // （CommonPreviewCss側の既定の背景色指定より、インラインスタイルの方が優先される）
+            string bodyStyle = string.IsNullOrEmpty(bgColor) ? "" : $" style=\"background-color:{bgColor};\"";
+
             // 画像がウィンドウ幅に収まるよう自動縮小するCSSを共通で適用する
-            return $@"<html><head><meta charset=""utf-8""><style>{CommonPreviewCss}</style></head><body>{htmlBody}</body></html>";
+            return $@"<html><head><meta charset=""utf-8""><style>{CommonPreviewCss}</style></head><body{bodyStyle}>{htmlBody}</body></html>";
         }
 
         private void TxtEditor_DragEnter(object sender, DragEventArgs e)
@@ -693,6 +868,117 @@ body { margin:0; font-family: 'Yu Gothic UI', 'Meiryo', sans-serif; background:#
                 string colorHex = $"#{dialog.Color.R:X2}{dialog.Color.G:X2}{dialog.Color.B:X2}";
                 WrapSelection($"<span style=\"color:{colorHex}\">", "</span>", "文字色");
             }
+        }
+
+        // 「サイドメニューBG色」ボタン左クリック時：カラーピッカーで色を選び、現在選択中のタブの
+        // サイドメニュー背景色として設定する（タブフォルダ内の .tabmeta.cfg に保存される）。
+        private void SetTabSidebarBgColorInteractive()
+        {
+            if (tabControlMain.SelectedTab == null) return;
+            string tabFolder = tabControlMain.SelectedTab.Tag?.ToString();
+            if (string.IsNullOrEmpty(tabFolder)) return;
+
+            using (var dialog = new ColorDialog())
+            {
+                // 既に設定済みの色があれば、カラーピッカーの初期選択色にしておく
+                string currentColor = GetTabSidebarBgColor(tabFolder);
+                if (!string.IsNullOrEmpty(currentColor))
+                {
+                    try { dialog.Color = ColorTranslator.FromHtml(currentColor); } catch { /* 壊れた値は無視 */ }
+                }
+
+                if (dialog.ShowDialog(this) != DialogResult.OK) return;
+
+                string colorHex = $"#{dialog.Color.R:X2}{dialog.Color.G:X2}{dialog.Color.B:X2}";
+                SetTabSidebarBgColor(tabFolder, colorHex);
+                hasUnsavedChanges = true;
+                ApplyCurrentTabSidebarColor();
+            }
+        }
+
+        // 「サイドメニューBG色」ボタン右クリック時：現在選択中のタブの背景色設定を削除し、既定色に戻す
+        private void ResetTabSidebarBgColor()
+        {
+            if (tabControlMain.SelectedTab == null) return;
+            string tabFolder = tabControlMain.SelectedTab.Tag?.ToString();
+            if (string.IsNullOrEmpty(tabFolder)) return;
+
+            SetTabSidebarBgColor(tabFolder, null);
+            hasUnsavedChanges = true;
+            ApplyCurrentTabSidebarColor();
+        }
+
+        // 「サイドメニュー文字色」ボタン左クリック時：カラーピッカーで色を選び、現在選択中のタブの
+        // サイドメニュー文字色として設定する。背景色によっては文字が読めなくなることがあるため、
+        // 背景色とは別に文字色も調整できるようにしている。
+        private void SetTabSidebarTextColorInteractive()
+        {
+            if (tabControlMain.SelectedTab == null) return;
+            string tabFolder = tabControlMain.SelectedTab.Tag?.ToString();
+            if (string.IsNullOrEmpty(tabFolder)) return;
+
+            using (var dialog = new ColorDialog())
+            {
+                string currentColor = GetTabSidebarTextColor(tabFolder);
+                if (!string.IsNullOrEmpty(currentColor))
+                {
+                    try { dialog.Color = ColorTranslator.FromHtml(currentColor); } catch { /* 壊れた値は無視 */ }
+                }
+
+                if (dialog.ShowDialog(this) != DialogResult.OK) return;
+
+                string colorHex = $"#{dialog.Color.R:X2}{dialog.Color.G:X2}{dialog.Color.B:X2}";
+                SetTabSidebarTextColor(tabFolder, colorHex);
+                hasUnsavedChanges = true;
+                ApplyCurrentTabSidebarColor();
+            }
+        }
+
+        // 「サイドメニュー文字色」ボタン右クリック時：現在選択中のタブの文字色設定を削除し、既定色に戻す
+        private void ResetTabSidebarTextColor()
+        {
+            if (tabControlMain.SelectedTab == null) return;
+            string tabFolder = tabControlMain.SelectedTab.Tag?.ToString();
+            if (string.IsNullOrEmpty(tabFolder)) return;
+
+            SetTabSidebarTextColor(tabFolder, null);
+            hasUnsavedChanges = true;
+            ApplyCurrentTabSidebarColor();
+        }
+
+        // 「メインページBG色」ボタン左クリック時：カラーピッカーで色を選び、現在編集中の段落の
+        // メインページ背景色として設定する（.mdファイル先頭の隠しマーカーとして保存される）。
+        private void SetParagraphMainBgColorInteractive()
+        {
+            if (string.IsNullOrEmpty(currentFilePath)) return;
+
+            using (var dialog = new ColorDialog())
+            {
+                // 既に設定済みの色があれば、カラーピッカーの初期選択色にしておく
+                if (!string.IsNullOrEmpty(currentParagraphBgColor))
+                {
+                    try { dialog.Color = ColorTranslator.FromHtml(currentParagraphBgColor); } catch { /* 壊れた値は無視 */ }
+                }
+
+                if (dialog.ShowDialog(this) != DialogResult.OK) return;
+
+                currentParagraphBgColor = $"#{dialog.Color.R:X2}{dialog.Color.G:X2}{dialog.Color.B:X2}";
+                hasUnsavedChanges = true;
+                // マーカー行を含めてすぐにファイルへ反映しておく
+                SaveCurrentFile();
+                UpdatePreview();
+            }
+        }
+
+        // 「メインページBG色」ボタン右クリック時：現在編集中の段落の背景色設定を削除し、既定色に戻す
+        private void ResetParagraphMainBgColor()
+        {
+            if (string.IsNullOrEmpty(currentFilePath)) return;
+
+            currentParagraphBgColor = null;
+            hasUnsavedChanges = true;
+            SaveCurrentFile();
+            UpdatePreview();
         }
 
         // 文字サイズドロップダウンで選択された際：選択範囲をHTMLのspanタグ(font-size指定)で囲む
@@ -1029,8 +1315,9 @@ body { margin:0; font-family: 'Yu Gothic UI', 'Meiryo', sans-serif; background:#
                         File.Copy(srcFile, destFile, true);
                     }
 
-                    // 出力時は画像参照を、出力フォルダから見た相対パス（assets/xxx）に差し替える
-                    string html = BuildHtmlDocument(txtEditor.Text, "assets");
+                    // 出力時は画像参照を、出力フォルダから見た相対パス（assets/xxx）に差し替える。
+                    // 背景色も現在の段落に設定されているメインページ背景色を反映する。
+                    string html = BuildHtmlDocument(txtEditor.Text, "assets", currentParagraphBgColor);
                     File.WriteAllText(outputFilePath, html);
 
                     // 既定のブラウザで開き、その場で表示内容を確認できるようにする
@@ -1186,12 +1473,18 @@ body { margin:0; font-family: 'Yu Gothic UI', 'Meiryo', sans-serif; background:#
         private string BuildSitePageHtml(string currentTabName, string currentParagraphName, string markdownText,
             string relativePrefix, List<(string TabName, string FolderPath, List<string> Paragraphs)> allTabs)
         {
+            // 本文の先頭に埋め込まれている「メインページ背景色」の隠しマーカーを取り除き、
+            // このページ自身の.content背景色として使う（マーカー自体は本文として表示させない）
+            string mainBgColor = ExtractParagraphBgColor(markdownText, out string cleanedMarkdown);
+
             // 本文をHTML化する。既存のBuildHtmlDocument(プレビュー/単体HTML出力用)と同様に、
             // 一旦 "https://wiki-assets" という仮想ホスト表記に統一してから、このページの深さに
             // 応じた実際の相対パス(relativePrefix + "assets")に置き換える2段階の変換を行っている。
-            string bodyHtml = Markdown.ToHtml(markdownText, markdownPipeline);
+            string bodyHtml = Markdown.ToHtml(cleanedMarkdown, markdownPipeline);
             bodyHtml = bodyHtml.Replace(assetsDir.Replace("\\", "/"), "https://wiki-assets");
             bodyHtml = bodyHtml.Replace("https://wiki-assets", relativePrefix + "assets");
+
+            string contentStyle = string.IsNullOrEmpty(mainBgColor) ? "" : $" style=\"background-color:{mainBgColor};\"";
 
             // --- タブバー(全タブ分のボタン)とサイドバー(全タブ分のリンク一覧)をまとめて組み立てる ---
             // どちらも allTabs を1回だけループして同時に構築する。
@@ -1223,7 +1516,17 @@ body { margin:0; font-family: 'Yu Gothic UI', 'Meiryo', sans-serif; background:#
                 // ".sidebar-list"は非表示、".sidebar-list.active"だけ表示、というルールにしている。
                 // 自タブの<div>にだけ最初から"active"を付けることで、ページを開いた時点で
                 // 正しいサイドバーが（JS実行を待たずに）表示された状態になる。
-                sidebarHtml.Append($"<div class=\"sidebar-list{(isCurrentTab ? " active" : "")}\" data-tab=\"{tabNameEncoded}\">");
+                // タブごとに設定された「サイドメニュー背景色・文字色」があれば、その<div>自体に
+                // インラインスタイルで適用する（表示中のタブに応じて自然に色が変わる）。
+                // リンク(<a>)側のCSSは color:inherit にしてあるため、この文字色指定がそのまま
+                // リンクの見た目にも反映される（背景色によって文字が見えなくなるのを防ぐため）。
+                string tabSidebarBgColor = GetTabSidebarBgColor(tab.FolderPath);
+                string tabSidebarTextColor = GetTabSidebarTextColor(tab.FolderPath);
+                string sidebarListStyle =
+                    (string.IsNullOrEmpty(tabSidebarBgColor) ? "" : $"background-color:{tabSidebarBgColor};") +
+                    (string.IsNullOrEmpty(tabSidebarTextColor) ? "" : $"color:{tabSidebarTextColor};");
+                if (!string.IsNullOrEmpty(sidebarListStyle)) sidebarListStyle = $" style=\"{sidebarListStyle}\"";
+                sidebarHtml.Append($"<div class=\"sidebar-list{(isCurrentTab ? " active" : "")}\" data-tab=\"{tabNameEncoded}\"{sidebarListStyle}>");
                 foreach (string paragraphName in tab.Paragraphs)
                 {
                     string paragraphEncoded = WebUtility.HtmlEncode(paragraphName);
@@ -1257,7 +1560,7 @@ body { margin:0; font-family: 'Yu Gothic UI', 'Meiryo', sans-serif; background:#
 <div class=""tabbar"">{tabBarHtml}</div>
 <div class=""layout"">
 <div class=""sidebar"">{sidebarHtml}</div>
-<div class=""content"">{bodyHtml}</div>
+<div class=""content""{contentStyle}>{bodyHtml}</div>
 </div>
 <script>
 // 指定したタブ名に対応するサイドバー・タブボタンだけを active にし、他は非表示/非アクティブにする

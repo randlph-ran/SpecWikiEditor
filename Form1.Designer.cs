@@ -64,6 +64,9 @@
             btnTable = new Button();
             btnTextColor = new Button();
             cmbFontSize = new ComboBox();
+            btnSidebarBgColor = new Button();
+            btnSidebarTextColor = new Button();
+            btnMainBgColor = new Button();
             btnFindReplace = new Button();
             txtEditor = new TextBox();
             tableLayoutPanelRight = new TableLayoutPanel();
@@ -282,6 +285,9 @@
             pnlEditorToolbar.Controls.Add(btnTable);
             pnlEditorToolbar.Controls.Add(btnTextColor);
             pnlEditorToolbar.Controls.Add(cmbFontSize);
+            pnlEditorToolbar.Controls.Add(btnSidebarBgColor);
+            pnlEditorToolbar.Controls.Add(btnSidebarTextColor);
+            pnlEditorToolbar.Controls.Add(btnMainBgColor);
             pnlEditorToolbar.Controls.Add(btnFindReplace);
             pnlEditorToolbar.Dock = DockStyle.Top;
             pnlEditorToolbar.Location = new Point(0, 0);
@@ -455,14 +461,51 @@
             btnTextColor.UseVisualStyleBackColor = true;
             // 
             // cmbFontSize
-            // 
+            //
             cmbFontSize.DropDownStyle = ComboBoxStyle.DropDownList;
             cmbFontSize.Location = new Point(2, 147);
             cmbFontSize.Margin = new Padding(2);
             cmbFontSize.Name = "cmbFontSize";
             cmbFontSize.Size = new Size(90, 23);
             cmbFontSize.TabIndex = 15;
-            // 
+            //
+            // btnSidebarBgColor
+            // 左クリックでサイドメニュー(現在のタブ)の背景色を設定、右クリックで既定色にリセットする
+            //
+            btnSidebarBgColor.AutoSize = true;
+            btnSidebarBgColor.Location = new Point(96, 176);
+            btnSidebarBgColor.Margin = new Padding(2);
+            btnSidebarBgColor.Name = "btnSidebarBgColor";
+            btnSidebarBgColor.Size = new Size(110, 25);
+            btnSidebarBgColor.TabIndex = 17;
+            btnSidebarBgColor.Text = "サイドメニューBG色";
+            btnSidebarBgColor.UseVisualStyleBackColor = true;
+            //
+            // btnSidebarTextColor
+            // 左クリックでサイドメニュー(現在のタブ)の文字色を設定、右クリックで既定色にリセットする。
+            // 背景色によっては文字が見えなくなることがあるため、背景色ボタンとは別に用意している。
+            //
+            btnSidebarTextColor.AutoSize = true;
+            btnSidebarTextColor.Location = new Point(210, 176);
+            btnSidebarTextColor.Margin = new Padding(2);
+            btnSidebarTextColor.Name = "btnSidebarTextColor";
+            btnSidebarTextColor.Size = new Size(110, 25);
+            btnSidebarTextColor.TabIndex = 18;
+            btnSidebarTextColor.Text = "サイドメニュー文字色";
+            btnSidebarTextColor.UseVisualStyleBackColor = true;
+            //
+            // btnMainBgColor
+            // 左クリックでメインページ(現在の段落)の背景色を設定、右クリックで既定色にリセットする
+            //
+            btnMainBgColor.AutoSize = true;
+            btnMainBgColor.Location = new Point(324, 176);
+            btnMainBgColor.Margin = new Padding(2);
+            btnMainBgColor.Name = "btnMainBgColor";
+            btnMainBgColor.Size = new Size(110, 25);
+            btnMainBgColor.TabIndex = 19;
+            btnMainBgColor.Text = "メインページBG色";
+            btnMainBgColor.UseVisualStyleBackColor = true;
+            //
             // btnFindReplace
             // 
             btnFindReplace.AutoSize = true;
@@ -470,7 +513,7 @@
             btnFindReplace.Margin = new Padding(2);
             btnFindReplace.Name = "btnFindReplace";
             btnFindReplace.Size = new Size(75, 25);
-            btnFindReplace.TabIndex = 16;
+            btnFindReplace.TabIndex = 20;
             btnFindReplace.Text = "検索/置換";
             btnFindReplace.UseVisualStyleBackColor = true;
             // 
@@ -683,6 +726,9 @@
         private Button btnTable;
         private Button btnTextColor;
         private ComboBox cmbFontSize;
+        private Button btnSidebarBgColor;
+        private Button btnSidebarTextColor;
+        private Button btnMainBgColor;
         private Button btnFindReplace;
         private MenuStrip menuStrip1;
         private ToolStripMenuItem fileToolStripMenuItem;

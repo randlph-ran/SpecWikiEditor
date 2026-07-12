@@ -88,6 +88,80 @@ namespace SpecWikiEditor
             "th, td { border: 1px solid #999; padding: 4px 8px; } " +
             "th { background-color: #f0f0f0; }";
 
+        // コードブロック(```で囲んだ部分)・インラインコードの見た目に使う共通CSS。
+        // GitHubなどで見るのと同様に、枠付きの箱として表示されるようにする。
+        // Markdigが生成する <pre><code>...</code></pre>（コードブロック）と
+        // <code>...</code>（インラインコード）の両方に対応させている。
+        // プレビュー・単体HTML出力(BuildHtmlDocument)・サイト出力(BuildSitePageHtml)の
+        // いずれでも共通して使う（.content 等でのスコープが無くても、Markdig生成物以外に
+        // pre/code要素は登場しないため、そのまま使い回して問題ない）。
+        private const string CodeBlockCss =
+            "pre { position: relative; background-color: #f6f8fa; border: 1px solid #d0d7de; " +
+            "border-radius: 6px; padding: 14px 12px; overflow-x: auto; } " +
+            "pre code { background: none; border: none; padding: 0; font-family: Consolas, 'Courier New', monospace; " +
+            "font-size: 13px; line-height: 1.5; white-space: pre; } " +
+            "code { font-family: Consolas, 'Courier New', monospace; } " +
+            ":not(pre) > code { background-color: rgba(128,128,128,0.15); padding: 2px 5px; " +
+            "border-radius: 4px; font-size: 0.9em; } " +
+            ".code-copy-button { position: absolute; top: 6px; right: 6px; padding: 2px 8px; font-size: 12px; " +
+            "border: 1px solid #d0d7de; border-radius: 4px; background-color: #ffffff; color: #333333; " +
+            "cursor: pointer; opacity: 0.85; } " +
+            ".code-copy-button:hover { opacity: 1; }";
+
+        // コードブロックの右上に「コピー」ボタンを自動で追加し、クリックすると
+        // そのコードブロックの中身をクリップボードにコピーするJS。
+        // CodeBlockCssとセットで、プレビュー・単体HTML出力・サイト出力のいずれにも埋め込む。
+        //
+        // WebView2のNavigateToStringで表示している場合、モダンな navigator.clipboard.writeText が
+        // 権限の都合で失敗する(何もコピーされず、クリップボードの中身が変わらない)ことがあるため、
+        // その場合は document.execCommand('copy') を使った古典的な方式にフォールバックする。
+        private const string CodeBlockCopyScript = @"
+document.querySelectorAll('pre').forEach(function (preEl) {
+  var codeEl = preEl.querySelector('code');
+  if (!codeEl) return;
+  var btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'code-copy-button';
+  btn.textContent = 'コピー';
+  btn.addEventListener('click', function () {
+    copyTextToClipboard(codeEl.textContent, btn);
+  });
+  preEl.appendChild(btn);
+});
+
+function copyTextToClipboard(text, btn) {
+  function showCopied() {
+    btn.textContent = 'コピーしました';
+    setTimeout(function () { btn.textContent = 'コピー'; }, 1500);
+  }
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(showCopied).catch(function () {
+      fallbackCopyToClipboard(text, showCopied);
+    });
+  } else {
+    fallbackCopyToClipboard(text, showCopied);
+  }
+}
+
+function fallbackCopyToClipboard(text, onSuccess) {
+  var textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.style.position = 'fixed';
+  textarea.style.left = '-9999px';
+  textarea.style.opacity = '0';
+  document.body.appendChild(textarea);
+  textarea.focus();
+  textarea.select();
+  try {
+    document.execCommand('copy');
+    onSuccess();
+  } catch (e) {
+    // コピーに失敗した場合は何もしない
+  }
+  document.body.removeChild(textarea);
+}
+";
+
         // 「サイト出力」で生成する各ページ共通のCSS。BuildSitePageHtmlが埋め込むHTML構造
         // （.tabbar / .layout > .sidebar + .content）にそのまま対応させている。
         // タブバー・サイドバー・本文の3ブロックからなる、シンプルで読みやすいレイアウトにしている
@@ -702,8 +776,10 @@ body { margin:0; font-family: 'Yu Gothic UI', 'Meiryo', sans-serif; background:#
             // （CommonPreviewCss側の既定の背景色指定より、インラインスタイルの方が優先される）
             string bodyStyle = string.IsNullOrEmpty(bgColor) ? "" : $" style=\"background-color:{bgColor};\"";
 
-            // 画像がウィンドウ幅に収まるよう自動縮小するCSSを共通で適用する
-            return $@"<html><head><meta charset=""utf-8""><style>{CommonPreviewCss}</style></head><body{bodyStyle}>{htmlBody}</body></html>";
+            // 画像がウィンドウ幅に収まるよう自動縮小するCSSを共通で適用する。
+            // CodeBlockCss/CodeBlockCopyScriptにより、コードブロックがGitHub同様の
+            // 枠付き表示になり、右上の「コピー」ボタンでクリップボードにコピーできるようにする。
+            return $@"<html><head><meta charset=""utf-8""><style>{CommonPreviewCss}{CodeBlockCss}</style></head><body{bodyStyle}>{htmlBody}<script>{CodeBlockCopyScript}</script></body></html>";
         }
 
         private void TxtEditor_DragEnter(object sender, DragEventArgs e)
@@ -1554,7 +1630,7 @@ body { margin:0; font-family: 'Yu Gothic UI', 'Meiryo', sans-serif; background:#
 <head>
 <meta charset=""utf-8"">
 <title>{WebUtility.HtmlEncode(currentParagraphName)}</title>
-<style>{SiteCommonCss}</style>
+<style>{SiteCommonCss}{CodeBlockCss}</style>
 </head>
 <body>
 <div class=""tabbar"">{tabBarHtml}</div>
@@ -1582,6 +1658,7 @@ document.querySelectorAll('.tab-button').forEach(function (btn) {{
   }});
 }});
 </script>
+<script>{CodeBlockCopyScript}</script>
 </body>
 </html>";
         }

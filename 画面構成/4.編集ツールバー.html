@@ -12,13 +12,17 @@ body { margin:0; font-family: 'Yu Gothic UI', 'Meiryo', sans-serif; background:#
 .tab-button.active { background:#007acc; }
 /* サイドバーと本文を横並びにする2カラムレイアウト */
 .layout { display:flex; align-items:flex-start; }
-.sidebar { width:220px; flex-shrink:0; border-right:1px solid #ddd; padding:12px; box-sizing:border-box; min-height:100vh; }
+.sidebar { width:220px; flex-shrink:0; border-right:1px solid #ddd; box-sizing:border-box; min-height:100vh; }
 /* 各タブ分のリンク一覧(div)。既定では全て非表示にし、.active が付いているものだけを表示する。
-   これにより「全タブ分のサイドバーを埋め込みつつ、見た目には1つしか出さない」を実現している */
-.sidebar-list { display:none; }
-.sidebar-list.active { display:block; }
-.sidebar-list a { display:block; padding:6px 4px; color:#333; text-decoration:none; border-radius:4px; }
-.sidebar-list a:hover { background:#f0f0f0; }
+   これにより「全タブ分のサイドバーを埋め込みつつ、見た目には1つしか出さない」を実現している。
+   paddingとmin-heightをこちら側に持たせることで、タブごとの背景色(インラインスタイル)が
+   サイドバー全体を隙間なく塗りつぶすようにしている */
+.sidebar-list { display:none; padding:12px; box-sizing:border-box; color:#333; }
+.sidebar-list.active { display:block; min-height:100vh; }
+/* リンクの文字色は親(.sidebar-list)の色を継承する。タブごとのインラインスタイルで
+   color を指定した場合、それがそのままリンクの文字色にも反映されるようにするため */
+.sidebar-list a { display:block; padding:6px 4px; color:inherit; text-decoration:none; border-radius:4px; }
+.sidebar-list a:hover { background:rgba(128,128,128,0.15); }
 /* 「今まさに見ているこのページ」へのリンクを、現在地としてハイライトする */
 .sidebar-list a.current { font-weight:bold; color:#007acc; background:#eaf4fc; }
 .content { flex:1; padding:24px; min-width:0; }
@@ -28,7 +32,7 @@ body { margin:0; font-family: 'Yu Gothic UI', 'Meiryo', sans-serif; background:#
 .content table { border-collapse: collapse; }
 .content th, .content td { border: 1px solid #999; padding: 4px 8px; }
 .content th { background-color: #f0f0f0; }
-</style>
+pre { position: relative; background-color: #f6f8fa; border: 1px solid #d0d7de; border-radius: 6px; padding: 14px 12px; overflow-x: auto; } pre code { background: none; border: none; padding: 0; font-family: Consolas, 'Courier New', monospace; font-size: 13px; line-height: 1.5; white-space: pre; } code { font-family: Consolas, 'Courier New', monospace; } :not(pre) > code { background-color: rgba(128,128,128,0.15); padding: 2px 5px; border-radius: 4px; font-size: 0.9em; } .code-copy-button { position: absolute; top: 6px; right: 6px; padding: 2px 8px; font-size: 12px; border: 1px solid #d0d7de; border-radius: 4px; background-color: #ffffff; color: #333333; cursor: pointer; opacity: 0.85; } .code-copy-button:hover { opacity: 1; }</style>
 </head>
 <body>
 <div class="tabbar"><button type="button" data-tab="TOP" data-first-page="../TOP/1.%E6%A6%82%E8%A6%81.html" class="tab-button">TOP</button><button type="button" data-tab="SpecWikiEditor概要" data-first-page="../SpecWikiEditor%E6%A6%82%E8%A6%81/1.%E6%A6%82%E8%A6%81.html" class="tab-button">SpecWikiEditor概要</button><button type="button" data-tab="画面構成" data-first-page="../%E7%94%BB%E9%9D%A2%E6%A7%8B%E6%88%90/1.%E6%A6%82%E8%A6%81.html" class="tab-button active">画面構成</button></div>
@@ -36,7 +40,8 @@ body { margin:0; font-family: 'Yu Gothic UI', 'Meiryo', sans-serif; background:#
 <div class="sidebar"><div class="sidebar-list" data-tab="TOP"><a href="../TOP/1.%E6%A6%82%E8%A6%81.html" class="">1.概要</a><a href="../TOP/2.%E7%B0%A1%E6%98%93%E6%93%8D%E4%BD%9C%E8%AA%AC%E6%98%8E.html" class="">2.簡易操作説明</a></div><div class="sidebar-list" data-tab="SpecWikiEditor概要"><a href="../SpecWikiEditor%E6%A6%82%E8%A6%81/1.%E6%A6%82%E8%A6%81.html" class="">1.概要</a><a href="../SpecWikiEditor%E6%A6%82%E8%A6%81/2.%E4%BF%9D%E5%AD%98%E5%85%88.html" class="">2.保存先</a></div><div class="sidebar-list active" data-tab="画面構成"><a href="../%E7%94%BB%E9%9D%A2%E6%A7%8B%E6%88%90/1.%E6%A6%82%E8%A6%81.html" class="">1.概要</a><a href="../%E7%94%BB%E9%9D%A2%E6%A7%8B%E6%88%90/2.%E3%82%BF%E3%83%96%28%E3%83%95%E3%82%A9%E3%83%AB%E3%83%80%29%E7%AE%A1%E7%90%86.html" class="">2.タブ(フォルダ)管理</a><a href="../%E7%94%BB%E9%9D%A2%E6%A7%8B%E6%88%90/3.%E6%AE%B5%E8%90%BD.html" class="">3.段落</a><a href="../%E7%94%BB%E9%9D%A2%E6%A7%8B%E6%88%90/4.%E7%B7%A8%E9%9B%86%E3%83%84%E3%83%BC%E3%83%AB%E3%83%90%E3%83%BC.html" class="current">4.編集ツールバー</a><a href="../%E7%94%BB%E9%9D%A2%E6%A7%8B%E6%88%90/5.%E3%83%97%E3%83%AC%E3%83%93%E3%83%A5%E3%83%BC.html" class="">5.プレビュー</a><a href="../%E7%94%BB%E9%9D%A2%E6%A7%8B%E6%88%90/6.%E5%87%BA%E5%8A%9B%E3%80%81%E3%81%9D%E3%81%AE%E4%BB%96.html" class="">6.出力、その他</a></div></div>
 <div class="content"><h3 id="section">編集ツールバー</h3>
 <p><img src="../assets/e69f9cfc-5979-4a09-bd03-ad5125ed88eb.png" alt="画像" /></p>
-<p>エディタ(<code>txtEditor</code>)上部に、Markdown/HTML の記法をボタン操作で挿入できるツールバーを配置している。ボタンは折り返し表示され、収まりきらない場合は自動的に行数が増える。</p>
+<p>エディタ(<code>txtEditor</code>)上部に、Markdown/HTML の記法をボタン操作で挿入できるツールバーを配置している。<br />
+ボタンは折り返し表示され、収まりきらない場合は自動的に行数が増える。</p>
 <table>
 <thead>
 <tr>
@@ -117,10 +122,10 @@ body { margin:0; font-family: 'Yu Gothic UI', 'Meiryo', sans-serif; background:#
 </table>
 <ul>
 <li>リスト・見出し・引用・チェックリストは Markdown 標準記法(<code>-</code> <code>#</code> <code>&gt;</code> など)を使うため、プレビューで正しく反映される。</li>
-<li>下線・文字色・文字サイズは標準 Markdown にはない機能のため、HTML タグを直接 Markdown 内に埋め込む方式で実現している(WebView2 は HTML をそのまま解釈するため正しく表示されるが、他の Markdown ビューアでは正しく表示されない場合がある)。</li>
+<li>下線・文字色・文字サイズは標準 Markdown にはない機能のため、HTML タグを直接 Markdown 内に埋め込む方式で実現している<br />
+(WebView2 は HTML をそのまま解釈するため正しく表示されるが、他の Markdown ビューアでは正しく表示されない場合がある)。</li>
 <li>表・チェックリスト・取消線などの拡張記法に対応するため、Markdig のパイプラインで <code>UseAdvancedExtensions()</code> を有効化している。</li>
-<li>Editor側で選択している箇所近辺にツールボックスと同じ特殊文字が入っている場合は、それを打ち消すトグル処理となっている<br />
-。
+<li>Editor側で選択している箇所近辺にツールボックスと同じ特殊文字が入っている場合は、それを打ち消すトグル処理となっている。
 <ul>
 <li>たとえば、「大項目」を押した際に「 # 」がカーソルの直前やテキストの選択範囲にあった場合は、これが消える。</li>
 </ul>
@@ -147,6 +152,52 @@ document.querySelectorAll('.tab-button').forEach(function (btn) {
     }
   });
 });
+</script>
+<script>
+document.querySelectorAll('pre').forEach(function (preEl) {
+  var codeEl = preEl.querySelector('code');
+  if (!codeEl) return;
+  var btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'code-copy-button';
+  btn.textContent = 'コピー';
+  btn.addEventListener('click', function () {
+    copyTextToClipboard(codeEl.textContent, btn);
+  });
+  preEl.appendChild(btn);
+});
+
+function copyTextToClipboard(text, btn) {
+  function showCopied() {
+    btn.textContent = 'コピーしました';
+    setTimeout(function () { btn.textContent = 'コピー'; }, 1500);
+  }
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(showCopied).catch(function () {
+      fallbackCopyToClipboard(text, showCopied);
+    });
+  } else {
+    fallbackCopyToClipboard(text, showCopied);
+  }
+}
+
+function fallbackCopyToClipboard(text, onSuccess) {
+  var textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.style.position = 'fixed';
+  textarea.style.left = '-9999px';
+  textarea.style.opacity = '0';
+  document.body.appendChild(textarea);
+  textarea.focus();
+  textarea.select();
+  try {
+    document.execCommand('copy');
+    onSuccess();
+  } catch (e) {
+    // コピーに失敗した場合は何もしない
+  }
+  document.body.removeChild(textarea);
+}
 </script>
 </body>
 </html>

@@ -12,13 +12,17 @@ body { margin:0; font-family: 'Yu Gothic UI', 'Meiryo', sans-serif; background:#
 .tab-button.active { background:#007acc; }
 /* サイドバーと本文を横並びにする2カラムレイアウト */
 .layout { display:flex; align-items:flex-start; }
-.sidebar { width:220px; flex-shrink:0; border-right:1px solid #ddd; padding:12px; box-sizing:border-box; min-height:100vh; }
+.sidebar { width:220px; flex-shrink:0; border-right:1px solid #ddd; box-sizing:border-box; min-height:100vh; }
 /* 各タブ分のリンク一覧(div)。既定では全て非表示にし、.active が付いているものだけを表示する。
-   これにより「全タブ分のサイドバーを埋め込みつつ、見た目には1つしか出さない」を実現している */
-.sidebar-list { display:none; }
-.sidebar-list.active { display:block; }
-.sidebar-list a { display:block; padding:6px 4px; color:#333; text-decoration:none; border-radius:4px; }
-.sidebar-list a:hover { background:#f0f0f0; }
+   これにより「全タブ分のサイドバーを埋め込みつつ、見た目には1つしか出さない」を実現している。
+   paddingとmin-heightをこちら側に持たせることで、タブごとの背景色(インラインスタイル)が
+   サイドバー全体を隙間なく塗りつぶすようにしている */
+.sidebar-list { display:none; padding:12px; box-sizing:border-box; color:#333; }
+.sidebar-list.active { display:block; min-height:100vh; }
+/* リンクの文字色は親(.sidebar-list)の色を継承する。タブごとのインラインスタイルで
+   color を指定した場合、それがそのままリンクの文字色にも反映されるようにするため */
+.sidebar-list a { display:block; padding:6px 4px; color:inherit; text-decoration:none; border-radius:4px; }
+.sidebar-list a:hover { background:rgba(128,128,128,0.15); }
 /* 「今まさに見ているこのページ」へのリンクを、現在地としてハイライトする */
 .sidebar-list a.current { font-weight:bold; color:#007acc; background:#eaf4fc; }
 .content { flex:1; padding:24px; min-width:0; }
@@ -28,7 +32,7 @@ body { margin:0; font-family: 'Yu Gothic UI', 'Meiryo', sans-serif; background:#
 .content table { border-collapse: collapse; }
 .content th, .content td { border: 1px solid #999; padding: 4px 8px; }
 .content th { background-color: #f0f0f0; }
-</style>
+pre { position: relative; background-color: #f6f8fa; border: 1px solid #d0d7de; border-radius: 6px; padding: 14px 12px; overflow-x: auto; } pre code { background: none; border: none; padding: 0; font-family: Consolas, 'Courier New', monospace; font-size: 13px; line-height: 1.5; white-space: pre; } code { font-family: Consolas, 'Courier New', monospace; } :not(pre) > code { background-color: rgba(128,128,128,0.15); padding: 2px 5px; border-radius: 4px; font-size: 0.9em; } .code-copy-button { position: absolute; top: 6px; right: 6px; padding: 2px 8px; font-size: 12px; border: 1px solid #d0d7de; border-radius: 4px; background-color: #ffffff; color: #333333; cursor: pointer; opacity: 0.85; } .code-copy-button:hover { opacity: 1; }</style>
 </head>
 <body>
 <div class="tabbar"><button type="button" data-tab="TOP" data-first-page="../TOP/1.%E6%A6%82%E8%A6%81.html" class="tab-button">TOP</button><button type="button" data-tab="SpecWikiEditor概要" data-first-page="../SpecWikiEditor%E6%A6%82%E8%A6%81/1.%E6%A6%82%E8%A6%81.html" class="tab-button">SpecWikiEditor概要</button><button type="button" data-tab="画面構成" data-first-page="../%E7%94%BB%E9%9D%A2%E6%A7%8B%E6%88%90/1.%E6%A6%82%E8%A6%81.html" class="tab-button active">画面構成</button></div>
@@ -37,10 +41,19 @@ body { margin:0; font-family: 'Yu Gothic UI', 'Meiryo', sans-serif; background:#
 <div class="content"><h3 id="markdown">段落(Markdown ファイル)管理</h3>
 <p><img src="../assets/1b3b5aa3-0401-4724-b4e6-9f8a201624c9.png" alt="画像" /></p>
 <ul>
-<li>段落は、選択中のタブフォルダ内にある <code>.md</code> ファイル1つに対応する。サイドバーには拡張子を除いたファイル名を表示する。</li>
-<li>サイドバー下の「+」ボタン押下 → 名称入力ダイアログ → 現在のタブ内にある既存 <code>.md</code> ファイルの先頭番号(例: <code>1.概要.md</code> の <code>1</code>)の最大値を調べ、その次の番号を自動採番(例: 次は <code>2.詳細設計.md</code>)→ ファイルを作成し、サイドバーに追加して選択状態にする。</li>
-<li>サイドバー下の「-」ボタン押下 → 確認ダイアログ(はい/いいえ)を表示 → 「はい」の場合のみファイルを<strong>ごみ箱に移動</strong>して削除。「いいえ」の場合は何もしない。</li>
-<li>タブページ本体内の「段落名称」欄に新しい名前を入力し「名称変更」ボタンを押すと、ファイル名を変更する(<code>File.Move</code>)。変更先と同名のファイルが既に存在する場合はエラーメッセージを表示し変更しない。変更前にエディタの最新内容を保存してからリネームする。</li>
+<li>段落は、選択中のタブフォルダ内にある <code>.md</code> ファイル1つに対応する。<br />
+サイドバーには拡張子を除いたファイル名を表示する。</li>
+<li>サイドバー下の「+」ボタン押下<br />
+→ 名称入力ダイアログ<br />
+→ 現在のタブ内にある既存 <code>.md</code> ファイルの先頭番号(例: <code>1.概要.md</code> の <code>1</code>)の最大値を調べ、その次の番号を自動採番(例: 次は <code>2.詳細設計.md</code>)<br />
+→ ファイルを作成し、サイドバーに追加して選択状態にする。</li>
+<li>サイドバー下の「-」ボタン押下<br />
+→ 確認ダイアログ(はい/いいえ)を表示<br />
+→ 「はい」の場合のみファイルを<strong>ごみ箱に移動</strong>して削除。<br />
+「いいえ」の場合は何もしない。</li>
+<li>タブページ本体内の「段落名称」欄に新しい名前を入力し「名称変更」ボタンを押すと、ファイル名を変更する(<code>File.Move</code>)。<br />
+変更先と同名のファイルが既に存在する場合はエラーメッセージを表示し変更しない。<br />
+変更前にエディタの最新内容を保存してからリネームする。</li>
 <li>タブ切替・段落切替のたびに、編集中の内容は自動的にファイルへ保存される。</li>
 </ul>
 </div>
@@ -64,6 +77,52 @@ document.querySelectorAll('.tab-button').forEach(function (btn) {
     }
   });
 });
+</script>
+<script>
+document.querySelectorAll('pre').forEach(function (preEl) {
+  var codeEl = preEl.querySelector('code');
+  if (!codeEl) return;
+  var btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'code-copy-button';
+  btn.textContent = 'コピー';
+  btn.addEventListener('click', function () {
+    copyTextToClipboard(codeEl.textContent, btn);
+  });
+  preEl.appendChild(btn);
+});
+
+function copyTextToClipboard(text, btn) {
+  function showCopied() {
+    btn.textContent = 'コピーしました';
+    setTimeout(function () { btn.textContent = 'コピー'; }, 1500);
+  }
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(showCopied).catch(function () {
+      fallbackCopyToClipboard(text, showCopied);
+    });
+  } else {
+    fallbackCopyToClipboard(text, showCopied);
+  }
+}
+
+function fallbackCopyToClipboard(text, onSuccess) {
+  var textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.style.position = 'fixed';
+  textarea.style.left = '-9999px';
+  textarea.style.opacity = '0';
+  document.body.appendChild(textarea);
+  textarea.focus();
+  textarea.select();
+  try {
+    document.execCommand('copy');
+    onSuccess();
+  } catch (e) {
+    // コピーに失敗した場合は何もしない
+  }
+  document.body.removeChild(textarea);
+}
 </script>
 </body>
 </html>

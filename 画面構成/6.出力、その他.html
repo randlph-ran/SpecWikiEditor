@@ -12,13 +12,17 @@ body { margin:0; font-family: 'Yu Gothic UI', 'Meiryo', sans-serif; background:#
 .tab-button.active { background:#007acc; }
 /* サイドバーと本文を横並びにする2カラムレイアウト */
 .layout { display:flex; align-items:flex-start; }
-.sidebar { width:220px; flex-shrink:0; border-right:1px solid #ddd; padding:12px; box-sizing:border-box; min-height:100vh; }
+.sidebar { width:220px; flex-shrink:0; border-right:1px solid #ddd; box-sizing:border-box; min-height:100vh; }
 /* 各タブ分のリンク一覧(div)。既定では全て非表示にし、.active が付いているものだけを表示する。
-   これにより「全タブ分のサイドバーを埋め込みつつ、見た目には1つしか出さない」を実現している */
-.sidebar-list { display:none; }
-.sidebar-list.active { display:block; }
-.sidebar-list a { display:block; padding:6px 4px; color:#333; text-decoration:none; border-radius:4px; }
-.sidebar-list a:hover { background:#f0f0f0; }
+   これにより「全タブ分のサイドバーを埋め込みつつ、見た目には1つしか出さない」を実現している。
+   paddingとmin-heightをこちら側に持たせることで、タブごとの背景色(インラインスタイル)が
+   サイドバー全体を隙間なく塗りつぶすようにしている */
+.sidebar-list { display:none; padding:12px; box-sizing:border-box; color:#333; }
+.sidebar-list.active { display:block; min-height:100vh; }
+/* リンクの文字色は親(.sidebar-list)の色を継承する。タブごとのインラインスタイルで
+   color を指定した場合、それがそのままリンクの文字色にも反映されるようにするため */
+.sidebar-list a { display:block; padding:6px 4px; color:inherit; text-decoration:none; border-radius:4px; }
+.sidebar-list a:hover { background:rgba(128,128,128,0.15); }
 /* 「今まさに見ているこのページ」へのリンクを、現在地としてハイライトする */
 .sidebar-list a.current { font-weight:bold; color:#007acc; background:#eaf4fc; }
 .content { flex:1; padding:24px; min-width:0; }
@@ -28,7 +32,7 @@ body { margin:0; font-family: 'Yu Gothic UI', 'Meiryo', sans-serif; background:#
 .content table { border-collapse: collapse; }
 .content th, .content td { border: 1px solid #999; padding: 4px 8px; }
 .content th { background-color: #f0f0f0; }
-</style>
+pre { position: relative; background-color: #f6f8fa; border: 1px solid #d0d7de; border-radius: 6px; padding: 14px 12px; overflow-x: auto; } pre code { background: none; border: none; padding: 0; font-family: Consolas, 'Courier New', monospace; font-size: 13px; line-height: 1.5; white-space: pre; } code { font-family: Consolas, 'Courier New', monospace; } :not(pre) > code { background-color: rgba(128,128,128,0.15); padding: 2px 5px; border-radius: 4px; font-size: 0.9em; } .code-copy-button { position: absolute; top: 6px; right: 6px; padding: 2px 8px; font-size: 12px; border: 1px solid #d0d7de; border-radius: 4px; background-color: #ffffff; color: #333333; cursor: pointer; opacity: 0.85; } .code-copy-button:hover { opacity: 1; }</style>
 </head>
 <body>
 <div class="tabbar"><button type="button" data-tab="TOP" data-first-page="../TOP/1.%E6%A6%82%E8%A6%81.html" class="tab-button">TOP</button><button type="button" data-tab="SpecWikiEditor概要" data-first-page="../SpecWikiEditor%E6%A6%82%E8%A6%81/1.%E6%A6%82%E8%A6%81.html" class="tab-button">SpecWikiEditor概要</button><button type="button" data-tab="画面構成" data-first-page="../%E7%94%BB%E9%9D%A2%E6%A7%8B%E6%88%90/1.%E6%A6%82%E8%A6%81.html" class="tab-button active">画面構成</button></div>
@@ -94,8 +98,11 @@ body { margin:0; font-family: 'Yu Gothic UI', 'Meiryo', sans-serif; background:#
 </tbody>
 </table>
 <ul>
-<li>「新規作成」「作業内容のロード」はどちらも、未保存の変更がある場合の確認ロジック(<code>ConfirmDiscardUnsavedChanges</code>)を共通で使っている。確認メッセージの一部(「新規作成」/「別ファイルをロード」)だけが操作内容に応じて変わる。</li>
-<li>「未保存フラグ」は、テキスト編集・タブ/段落の追加・削除・リネームなどがあった場合に立つ。「作業内容のセーブ」または「作業内容の上書き保存」に成功するとリセットされる。ウィンドウを閉じる際(メニューの「終了」・タイトルバーの×ボタンいずれも)や、「新規作成」「作業内容のロード」を実行する際に、このフラグを見て確認ダイアログを出すかどうかを判定する。</li>
+<li>「新規作成」「作業内容のロード」はどちらも、未保存の変更がある場合の確認ロジック(<code>ConfirmDiscardUnsavedChanges</code>)を共通で使っている。<br />
+確認メッセージの一部(「新規作成」/「別ファイルをロード」)だけが操作内容に応じて変わる。</li>
+<li>「未保存フラグ」は、テキスト編集・タブ/段落の追加・削除・リネームなどがあった場合に立つ。<br />
+「作業内容のセーブ」または「作業内容の上書き保存」に成功するとリセットされる。<br />
+ウィンドウを閉じる際(メニューの「終了」・タイトルバーの×ボタンいずれも)や、「新規作成」「作業内容のロード」を実行する際に、このフラグを見て確認ダイアログを出すかどうかを判定する。</li>
 </ul>
 <p><strong>タイトルバーの表示</strong></p>
 <ul>
@@ -105,13 +112,17 @@ body { margin:0; font-family: 'Yu Gothic UI', 'Meiryo', sans-serif; background:#
 </ul>
 <h3 id="section-2">起動時の挙動・多重起動の防止</h3>
 <ul>
-<li>アプリ起動時は、Excel/PowerPoint 等の事務系アプリと同様に<strong>常に新規(「TOP」タブのみの空の状態)から開始する</strong>(詳細は「データの保存先」を参照)。この処理は <code>Form1.ResetProjectToBlank()</code> が担い、「新規作成」メニューとも共通で使われる。</li>
-<li>ただし <code>Default.cfg</code> を初めて作成した回(初回起動・旧バージョンからの移行が発生した回)だけは例外で、移行されたデータ(または新規生成された既定タブ)をそのまま表示する。この判定分岐は <code>Form1_Load</code> 内で行っている。</li>
-<li><strong>多重起動はできない</strong>。<code>Program.cs</code> の <code>Main()</code> で名前付き <code>Mutex</code>(<code>SpecWikiEditor_SingleInstance_Mutex</code>)を取得し、既に他のプロセスが起動していれば案内メッセージを表示してすぐに終了する。プロジェクトの保存先フォルダが1箇所に固定されているため、複数インスタンスを許可すると、片方の起動処理(空へのリセットなど)がもう片方の作業内容を消してしまう事故につながるため。</li>
+<li>アプリ起動時は、Excel/PowerPoint 等の事務系アプリと同様に<strong>常に新規(「TOP」タブのみの空の状態)から開始する</strong>(詳細は「データの保存先」を参照)。<br />
+この処理は <code>Form1.ResetProjectToBlank()</code> が担い、「新規作成」メニューとも共通で使われる。</li>
+<li>ただし <code>Default.cfg</code> を初めて作成した回(初回起動・旧バージョンからの移行が発生した回)だけは例外で、移行されたデータ(または新規生成された既定タブ)をそのまま表示する。<br />
+この判定分岐は <code>Form1_Load</code> 内で行っている。</li>
+<li><strong>多重起動はできない</strong>。<code>Program.cs</code> の <code>Main()</code> で名前付き <code>Mutex</code>(<code>SpecWikiEditor_SingleInstance_Mutex</code>)を取得し、既に他のプロセスが起動していれば案内メッセージを表示してすぐに終了する。<br />
+プロジェクトの保存先フォルダが1箇所に固定されているため、複数インスタンスを許可すると、片方の起動処理(空へのリセットなど)がもう片方の作業内容を消してしまう事故につながるため。</li>
 </ul>
 <h3 id="default.cfg">設定・Default.cfg</h3>
 <ul>
-<li><p>アプリの既定設定(プロジェクトの保存先パス・フォルダ名・起動時にウィンドウを最大化するか)は、実行ファイルと同じフォルダの <code>Default.cfg</code> というテキストファイルに保存される。<code>Key=Value</code> 形式で、<code>#</code> から始まる行はコメントとして無視される。</p>
+<li><p>アプリの既定設定(プロジェクトの保存先パス・フォルダ名・起動時にウィンドウを最大化するか)は、実行ファイルと同じフォルダの <code>Default.cfg</code> というテキストファイルに保存される。<br />
+<code>Key=Value</code> 形式で、<code>#</code> から始まる行はコメントとして無視される。</p>
 </li>
 <li><p>起動時に <code>Default.cfg</code> が存在しない場合は、以下の既定値で自動的に新規作成する。</p>
 <table>
@@ -137,7 +148,8 @@ body { margin:0; font-family: 'Yu Gothic UI', 'Meiryo', sans-serif; background:#
 </tbody>
 </table>
 </li>
-<li><p>ファイルメニューの「設定」から、これらの値をダイアログ上で編集できる(保存先は「参照...」ボタンでフォルダ選択も可能)。変更内容は <code>Default.cfg</code> に保存され、<strong>次回アプリ起動時から反映</strong>される(実行中のプロジェクトを即座に移動する機能ではない)。</p>
+<li><p>ファイルメニューの「設定」から、これらの値をダイアログ上で編集できる(保存先は「参照...」ボタンでフォルダ選択も可能)。<br />
+変更内容は <code>Default.cfg</code> に保存され、<strong>次回アプリ起動時から反映</strong>される(実行中のプロジェクトを即座に移動する機能ではない)。</p>
 </li>
 <li><p><code>Default.cfg</code> の内容が壊れている・項目が欠けている場合は、該当項目のみ既定値にフォールバックする。</p>
 </li>
@@ -167,6 +179,52 @@ document.querySelectorAll('.tab-button').forEach(function (btn) {
     }
   });
 });
+</script>
+<script>
+document.querySelectorAll('pre').forEach(function (preEl) {
+  var codeEl = preEl.querySelector('code');
+  if (!codeEl) return;
+  var btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'code-copy-button';
+  btn.textContent = 'コピー';
+  btn.addEventListener('click', function () {
+    copyTextToClipboard(codeEl.textContent, btn);
+  });
+  preEl.appendChild(btn);
+});
+
+function copyTextToClipboard(text, btn) {
+  function showCopied() {
+    btn.textContent = 'コピーしました';
+    setTimeout(function () { btn.textContent = 'コピー'; }, 1500);
+  }
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(showCopied).catch(function () {
+      fallbackCopyToClipboard(text, showCopied);
+    });
+  } else {
+    fallbackCopyToClipboard(text, showCopied);
+  }
+}
+
+function fallbackCopyToClipboard(text, onSuccess) {
+  var textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.style.position = 'fixed';
+  textarea.style.left = '-9999px';
+  textarea.style.opacity = '0';
+  document.body.appendChild(textarea);
+  textarea.focus();
+  textarea.select();
+  try {
+    document.execCommand('copy');
+    onSuccess();
+  } catch (e) {
+    // コピーに失敗した場合は何もしない
+  }
+  document.body.removeChild(textarea);
+}
 </script>
 </body>
 </html>
